@@ -79,6 +79,18 @@ function shown(text: string): string {
 }
 
 /**
+ * A count with its noun, singular for one.
+ *
+ * @param n - How many.
+ * @param one - The noun for one.
+ * @param many - The noun for any other count. Default `one` with an s.
+ * @returns {string} Such as `1 column` or `3 columns`.
+ */
+function count(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
  * A row limit, reading `0`, which OMP sends for an unset number, as no limit given.
  *
  * @param limit - The argument.
@@ -159,7 +171,7 @@ export function listProviders(): ToolResult<ProvidersDetails> {
   const providers = listRegistered();
   const connections = listConnections();
   const writes = writesAllowed();
-  const lines = [`${providers.length} engines:`];
+  const lines = [`${count(providers.length, "engine")}:`];
   for (const meta of providers) {
     lines.push(
       `${meta.key}  ${shown(meta.title)}`,
@@ -171,7 +183,7 @@ export function listProviders(): ToolResult<ProvidersDetails> {
   lines.push(
     connections.length === 0
       ? "No connections configured. Set DATABASES_<NAME>_URL to name one, then pass the name as database."
-      : `${connections.length} connections, pass the name as database:`,
+      : `${count(connections.length, "connection")}, pass the name as database:`,
   );
   for (const connection of connections) {
     lines.push(`${shown(connection.name)}  ${connection.provider}  ${shown(connection.label)}`);
@@ -218,9 +230,15 @@ function columnLine(column: Readonly<ColumnInfo>): string {
  * @returns {string[]} Columns, indexes and foreign keys.
  */
 function describeLines(table: Readonly<TableDetail>): string[] {
-  const lines = [`${shown(qualified(table))} (${table.kind}), ${table.columns.length} columns:`];
+  const lines = [
+    `${shown(qualified(table))} (${table.kind}), ${count(table.columns.length, "column")}:`,
+  ];
   for (const column of table.columns) lines.push(columnLine(column));
-  lines.push(table.indexes.length === 0 ? "No indexes." : `${table.indexes.length} indexes:`);
+  lines.push(
+    table.indexes.length === 0
+      ? "No indexes."
+      : `${count(table.indexes.length, "index", "indexes")}:`,
+  );
   for (const index of table.indexes) {
     lines.push(
       `  ${shown(index.name)}${index.unique ? " unique" : ""} (${index.columns.map(shown).join(", ")})`,
@@ -229,7 +247,7 @@ function describeLines(table: Readonly<TableDetail>): string[] {
   lines.push(
     table.foreignKeys.length === 0
       ? "No foreign keys."
-      : `${table.foreignKeys.length} foreign keys:`,
+      : `${count(table.foreignKeys.length, "foreign key")}:`,
   );
   for (const key of table.foreignKeys) {
     lines.push(
@@ -263,7 +281,9 @@ export async function getSchema(
     };
   }
   const { provider, value } = await withDatabase(input.database, (db) => db.tables(options));
-  const lines = [`${source(provider)}: ${value.length} tables and views`];
+  const lines = [
+    `${source(provider)}: ${count(value.length, "table or view", "tables and views")}`,
+  ];
   for (const table of value.slice(0, MAX_LISTED_TABLES)) {
     lines.push(`${shown(qualified(table))}  ${table.kind}`);
   }
