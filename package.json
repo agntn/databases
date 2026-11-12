@@ -57,7 +57,9 @@
     "typecheck": "tsc --noEmit --skipLibCheck && pnpm build && tsc -p tsconfig.extensions.json && tsc -p test/tsconfig.json",
     "test": "vp test run",
     "test:watch": "vp test watch",
-    "prepack": "pnpm run build"
+    "prepack": "pnpm run build",
+    "docs": "pnpm --dir docs dev",
+    "docs:build": "pnpm --dir docs build"
   },
   "dependencies": {
     "@agntn/credentials": "catalog:deps",

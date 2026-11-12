@@ -3,7 +3,8 @@ import oxlint from "@agntn/ox/oxlint";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
-  fmt: { ...oxfmt, ignorePatterns: ["dist"] },
+  /** The site in docs/ is formatted by its own rules. */
+  fmt: { ...oxfmt, ignorePatterns: ["dist", "docs"] },
   lint: {
     ...oxlint,
     rules: {
@@ -42,7 +43,7 @@ export default defineConfig({
         },
       },
     ],
-    ignorePatterns: ["dist"],
+    ignorePatterns: ["dist", "docs"],
   },
   test: {
     include: ["test/**/*.test.ts"],

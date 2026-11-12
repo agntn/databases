@@ -1,0 +1,32 @@
+{
+  "name": "docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "deploy": "pnpm build && wrangler deploy"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "catalog:deps",
+    "@vueuse/core": "catalog:deps",
+    "agents": "catalog:deps",
+    "better-sqlite3": "catalog:deps",
+    "docus": "catalog:deps",
+    "nuxt": "catalog:deps",
+    "ufo": "catalog:deps"
+  },
+  "devDependencies": {
+    "@iconify-json/lucide": "catalog:dev",
+    "@iconify-json/simple-icons": "catalog:dev",
+    "@iconify-json/vscode-icons": "catalog:dev",
+    "@nuxt/content": "catalog:dev",
+    "@nuxt/ui": "catalog:dev",
+    "shiki": "catalog:dev",
+    "typescript": "catalog:nuxt",
+    "wrangler": "catalog:dev"
+  },
+  "packageManager": "pnpm@12.18.0"
+}

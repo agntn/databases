@@ -1,0 +1,225 @@
+{
+  "database": "/var/tmp/databases-landing/shop.db",
+  "engines": [
+    {
+      "key": "sqlite",
+      "title": "SQLite",
+      "reference": "sqlite:<path>, or a path ending in .db, .sqlite or .sqlite3",
+      "readOnly": "file opened read-only, and SQLite's authorizer denies every action but a read while the statement is prepared"
+    },
+    {
+      "key": "postgres",
+      "title": "Postgres",
+      "reference": "postgres://user:password@host:5432/database",
+      "readOnly": "a READ ONLY transaction with a statement timeout, over the extended protocol, which takes one statement"
+    },
+    {
+      "key": "d1",
+      "title": "Cloudflare D1",
+      "reference": "d1:<database name or id>, or d1://<account id>/<database>",
+      "readOnly": "the statement is prepared against an empty copy of the remote schema under SQLite's authorizer before it is sent",
+      "credentials": "CLOUDFLARE_API_TOKEN, or the cf CLI's login; the account from CLOUDFLARE_ACCOUNT_ID or the login"
+    }
+  ],
+  "tools": [
+    {
+      "name": "databases_providers",
+      "title": "List Database Providers",
+      "effect": "read"
+    },
+    {
+      "name": "databases_schema_get",
+      "title": "Get Database Schema",
+      "effect": "read"
+    },
+    {
+      "name": "databases_table_sample",
+      "title": "Sample Table Rows",
+      "effect": "read"
+    },
+    {
+      "name": "databases_query",
+      "title": "Query Database",
+      "effect": "read"
+    },
+    {
+      "name": "databases_explain",
+      "title": "Explain Query",
+      "effect": "read"
+    },
+    {
+      "name": "databases_execute",
+      "title": "Execute Statement",
+      "effect": "destructive"
+    }
+  ],
+  "queries": [
+    {
+      "id": "longest",
+      "title": "The longest tracks",
+      "sql": "SELECT t.title, a.name, t.seconds FROM tracks t JOIN albums al ON al.id = t.album_id JOIN artists a ON a.id = al.artist_id ORDER BY t.seconds DESC",
+      "limit": 3,
+      "text": "/var/tmp/databases-landing/shop.db (sqlite): 3 rows, more not read (limit 3)\ncolumns: [\"title\",\"name\",\"seconds\"]\ntypes: [\"text\",\"text\",\"integer\"]\n[\"Rime of the Ancient Mariner\",\"Iron Maiden\",818]\n[\"Sinnerman\",\"Nina Simone\",622]\n[\"2 Minutes to Midnight\",\"Iron Maiden\",360]\nMore rows exist. Narrow the query, aggregate it, or raise limit (up to 1000).",
+      "result": {
+        "database": "/var/tmp/databases-landing/shop.db",
+        "provider": "sqlite",
+        "columns": [
+          {
+            "name": "title",
+            "type": "text"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "seconds",
+            "type": "integer"
+          }
+        ],
+        "rows": [
+          [
+            "Rime of the Ancient Mariner",
+            "Iron Maiden",
+            818
+          ],
+          [
+            "Sinnerman",
+            "Nina Simone",
+            622
+          ],
+          [
+            "2 Minutes to Midnight",
+            "Iron Maiden",
+            360
+          ]
+        ],
+        "more": true,
+        "cut": false
+      }
+    },
+    {
+      "id": "albums",
+      "title": "Albums of one artist",
+      "sql": "SELECT title, year FROM albums WHERE artist_id = ? ORDER BY year",
+      "params": [
+        1
+      ],
+      "text": "/var/tmp/databases-landing/shop.db (sqlite): 2 rows\ncolumns: [\"title\",\"year\"]\ntypes: [\"text\",\"integer\"]\n[\"Piece of Mind\",1983]\n[\"Powerslave\",1984]",
+      "result": {
+        "database": "/var/tmp/databases-landing/shop.db",
+        "provider": "sqlite",
+        "columns": [
+          {
+            "name": "title",
+            "type": "text"
+          },
+          {
+            "name": "year",
+            "type": "integer"
+          }
+        ],
+        "rows": [
+          [
+            "Piece of Mind",
+            1983
+          ],
+          [
+            "Powerslave",
+            1984
+          ]
+        ],
+        "more": false,
+        "cut": false
+      }
+    },
+    {
+      "id": "delete",
+      "title": "A write, refused",
+      "sql": "DELETE FROM tracks WHERE seconds > 600",
+      "text": "Refused: the statement writes, changes a setting, attaches a file or calls a function outside the database. Only reads run here; use execute for a write [refused]",
+      "error": {
+        "code": "refused"
+      }
+    },
+    {
+      "id": "stacked",
+      "title": "A second statement, refused",
+      "sql": "SELECT count(*) FROM tracks; DROP TABLE tracks",
+      "text": "Refused: send one statement per call. Everything after the first `;` would have run too [refused]",
+      "error": {
+        "code": "refused"
+      }
+    }
+  ],
+  "verdicts": [
+    {
+      "sql": "SELECT * FROM tracks WHERE seconds > 300",
+      "sqlite": "ok",
+      "d1": "ok"
+    },
+    {
+      "sql": "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n LIMIT 3) SELECT i FROM n",
+      "sqlite": "ok",
+      "d1": "ok"
+    },
+    {
+      "sql": "PRAGMA table_info(tracks)",
+      "sqlite": "ok",
+      "d1": "ok"
+    },
+    {
+      "sql": "UPDATE tracks SET price = 0",
+      "sqlite": "refused",
+      "d1": "refused"
+    },
+    {
+      "sql": "WITH gone AS (SELECT 1) DELETE FROM tracks",
+      "sqlite": "refused",
+      "d1": "refused"
+    },
+    {
+      "sql": "ATTACH 'other.db' AS other",
+      "sqlite": "refused",
+      "d1": "refused"
+    },
+    {
+      "sql": "PRAGMA foreign_keys = off",
+      "sqlite": "refused",
+      "d1": "refused"
+    },
+    {
+      "sql": "SELECT 1; DROP TABLE tracks",
+      "sqlite": "refused",
+      "d1": "refused"
+    }
+  ],
+  "references": [
+    {
+      "reference": "shop",
+      "provider": "postgres",
+      "label": "postgres://reader:***@db.internal:5432/shop",
+      "name": "shop"
+    },
+    {
+      "reference": "postgres://reader@db.internal:5432/shop",
+      "provider": "postgres",
+      "label": "postgres://reader@db.internal:5432/shop"
+    },
+    {
+      "reference": "/srv/data/shop.db",
+      "provider": "sqlite",
+      "label": "/srv/data/shop.db"
+    },
+    {
+      "reference": "sqlite:/var/data/app.sqlite",
+      "provider": "sqlite",
+      "label": "/var/data/app.sqlite"
+    },
+    {
+      "reference": "d1:shop-prod",
+      "provider": "d1",
+      "label": "d1:shop-prod"
+    }
+  ]
+}
