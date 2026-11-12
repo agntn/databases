@@ -1,0 +1,110 @@
+{
+  "name": "@agntn/databases",
+  "version": "0.0.0",
+  "description": "Schema, read-only queries and query plans for SQLite, Postgres and Cloudflare D1, through one interface for agents.",
+  "keywords": [
+    "agents",
+    "cloudflare-d1",
+    "database",
+    "mcp",
+    "postgres",
+    "schema",
+    "sql",
+    "sqlite"
+  ],
+  "homepage": "https://databases.agntn.dev",
+  "bugs": "https://github.com/agntn/databases/issues",
+  "license": "MIT",
+  "author": "oritwoen (https://github.com/oritwoen)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agntn/databases.git"
+  },
+  "bin": {
+    "databases": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "extensions/omp",
+    "extensions/pi"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./ai": {
+      "types": "./dist/ai.d.mts",
+      "import": "./dist/ai.mjs"
+    },
+    "./mcp": {
+      "types": "./dist/mcp.d.mts",
+      "import": "./dist/mcp.mjs"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "obuild",
+    "dev": "obuild --stub",
+    "lint": "pnpm build && vp lint && vp fmt --check",
+    "fmt": "pnpm build && vp lint --fix && vp fmt",
+    "typecheck": "tsc --noEmit --skipLibCheck && pnpm build && tsc -p tsconfig.extensions.json && tsc -p test/tsconfig.json",
+    "test": "vp test run",
+    "test:watch": "vp test watch",
+    "prepack": "pnpm run build"
+  },
+  "dependencies": {
+    "@agntn/credentials": "catalog:deps",
+    "@agntn/tools": "catalog:deps",
+    "@modelcontextprotocol/server": "catalog:deps",
+    "postgres": "catalog:deps"
+  },
+  "devDependencies": {
+    "@agntn/ox": "catalog:dev",
+    "@earendil-works/pi-coding-agent": "catalog:dev",
+    "@modelcontextprotocol/client": "catalog:dev",
+    "@oh-my-pi/pi-coding-agent": "catalog:dev",
+    "@types/node": "catalog:dev",
+    "ai": "catalog:dev",
+    "obuild": "catalog:dev",
+    "typescript": "catalog:dev",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.87.1 <2",
+    "@oh-my-pi/pi-coding-agent": ">=18.4.2 <19",
+    "ai": ">=7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@oh-my-pi/pi-coding-agent": {
+      "optional": true
+    },
+    "ai": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=26"
+  },
+  "packageManager": "pnpm@12.18.0",
+  "omp": {
+    "extensions": [
+      "./extensions/omp/databases.ts"
+    ]
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/pi/databases.ts"
+    ]
+  }
+}

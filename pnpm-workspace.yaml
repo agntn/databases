@@ -1,0 +1,46 @@
+gitChecks: false
+
+allowBuilds:
+  "@google/genai": false
+  esbuild: true
+  onnxruntime-node: false
+  protobufjs: false
+  sharp: false
+
+# A frozen install refuses day-old releases. The @agntn glob lets a sibling in the day it ships.
+minimumReleaseAgeExclude:
+  - "@agntn/*"
+
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@1.6.0
+  vite-plus: 1.6.0
+
+catalogs:
+  deps:
+    "@agntn/credentials": 0.1.0
+    "@agntn/tools": 0.3.0
+    "@modelcontextprotocol/server": 2.4.0
+    postgres: 4.1.1
+  dev:
+    "@agntn/ox": 0.1.0
+    "@earendil-works/pi-coding-agent": 1.5.0
+    "@modelcontextprotocol/client": 2.4.0
+    "@oh-my-pi/pi-coding-agent": 18.16.0
+    "@types/node": 26.6.6
+    ai: 7.0.163
+    obuild: 0.4.45
+    typescript: 7.0.2
+
+cleanupUnusedCatalogs: true
+
+overrides:
+  vite@*: "catalog:"
+
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: "*"
+
+# Keeps pnpm 12's env document out of the lockfile. GitHub reads that one as zero dependencies.
+pmOnFail: ignore
