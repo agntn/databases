@@ -1,5 +1,5 @@
 /**
- * Every in-process test starts with no named connections, no write switch and no Cloudflare
+ * Every in-process test starts with no named connections and no Cloudflare
  * credentials, and with a home the cf CLI has never seen. Set directly, not through `vi.stubEnv`,
  * so `vi.unstubAllEnvs()` comes back here instead of to the developer's real environment.
  */

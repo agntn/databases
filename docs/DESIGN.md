@@ -29,5 +29,5 @@ The rules every `*.agntn.dev` site shares live in the agntn design system. This 
 
 - **No playground.** A query needs a database, and a page that opens one for anyone is a proxy into somebody's data. The landing replays calls recorded at build time and says so in the footer.
 - **No `/mcp` for the tools.** The Docus endpoint serves the pages of this site only, for the same reason.
-- **A metric that is a policy, not a count.** The hero's accent value is the number of writes allowed by default. It is zero because `DATABASES_WRITE` is off unless set, and the line under it names the one write tool from the tool list.
+- **Enabled writes.** The hero metric shows the number of enabled write tools, calculated dynamically from `WRITING.length`.
 - **Brand glyphs in the reticle.** SQLite, PostgreSQL and Cloudflare come from the monochrome `simple-icons` set, since the subjects are engines.

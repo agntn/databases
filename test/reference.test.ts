@@ -89,7 +89,7 @@ describe("listConnections", () => {
         DATABASES_ZED_URL: "d1:zed",
         DATABASES_SHOP_PROD_URL: "postgres://u:secret@h/db?password=x",
         DATABASES_BROKEN_URL: "nonsense",
-        DATABASES_WRITE: "1",
+        DATABASES_UNUSED: "1",
         OTHER_URL: "postgres://h/db",
       }),
     ).toEqual([

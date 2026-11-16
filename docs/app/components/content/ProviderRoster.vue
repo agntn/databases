@@ -87,7 +87,7 @@ const order = computed(() => {
     </UTable>
     <footer :class="ROSTER_CLASS.footer">
       <span>read from the registry</span>
-      <span :class="ROSTER_CLASS.meta">writes off until DATABASES_WRITE=1</span>
+      <span :class="ROSTER_CLASS.meta">execute accepts one SQL statement</span>
     </footer>
   </section>
 </template>
