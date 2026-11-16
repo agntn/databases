@@ -30,9 +30,9 @@ const METRICS = [
   },
   {
     label: "Writes",
-    value: "0",
+    value: String(TOOLS.filter((tool) => tool.effect !== "read").length),
     unit: "by default",
-    note: "off until DATABASES_WRITE=1",
+    note: "experimental writes enabled",
     accent: true,
   },
 ];

@@ -36,7 +36,7 @@ const SNIPPET = LINES.map((line) => (line.shell ? `$ ${line.text}` : line.text))
 
 const NOTES = [
   { tag: "Keys", text: "None for a SQLite file. Postgres takes its URL, D1 your Cloudflare login." },
-  { tag: "Reads", text: "Reads only, unless the server runs with DATABASES_WRITE=1." },
+  { tag: "Writes", text: "Experimental writes are enabled without an environment switch." },
   { tag: "Pin", text: "Pre-1.0, so pin exact versions." },
 ] as const;
 </script>

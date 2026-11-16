@@ -43,12 +43,12 @@ const { copied, copy } = useCopied();
         <div>
           <dt>Tools</dt>
           <dd>{{ TOOLS.length }}</dd>
-          <dd class="hero-metric-sub">schema, rows, plans, one guarded write</dd>
+          <dd class="hero-metric-sub">schema, rows, plans, one write tool</dd>
         </div>
         <div>
           <dt>Writes by default</dt>
-          <dd class="hero-metric-accent">0</dd>
-          <dd class="hero-metric-sub">{{ WRITING.length }} write tool, off by default</dd>
+          <dd class="hero-metric-accent">{{ WRITING.length }}</dd>
+          <dd class="hero-metric-sub">write tool, enabled by default</dd>
         </div>
       </dl>
 

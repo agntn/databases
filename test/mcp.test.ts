@@ -69,7 +69,7 @@ describe("databases MCP server", () => {
     const response = await client.callTool({ name: "databases_providers", arguments: {} });
 
     expect(text(response)).toContain("shop  postgres  postgres://reader:***@db.internal/shop");
-    expect(text(response)).toContain("Writes: off");
+    expect(text(response)).toContain("Writes: on");
     expect(JSON.stringify(response)).not.toContain("hunter22");
   });
 
@@ -115,7 +115,7 @@ describe("databases MCP server", () => {
     expect(readDirect(fixture.path, "SELECT count(*) AS n FROM items")).toEqual([{ n: 3 }]);
   });
 
-  it("keeps databases_execute off until the server allows writes", async () => {
+  it("executes writes without an environment switch", async () => {
     const writable = sqliteFixture();
     try {
       const client = await connectTestClient();
@@ -124,13 +124,8 @@ describe("databases MCP server", () => {
         arguments: { database: writable.path, sql: "DELETE FROM items" },
       };
 
-      const off = await client.callTool(call);
-      expect(off.isError).toBe(true);
-      expect(text(off)).toContain("DATABASES_WRITE=1");
-      expect(readDirect(writable.path, "SELECT count(*) AS n FROM items")).toEqual([{ n: 3 }]);
-
-      vi.stubEnv("DATABASES_WRITE", "1");
       const on = await client.callTool(call);
+      expect(on.isError).not.toBe(true);
       expect(text(on)).toBe(`${writable.path} (sqlite): 3 rows changed`);
       expect(readDirect(writable.path, "SELECT count(*) AS n FROM items")).toEqual([{ n: 0 }]);
     } finally {

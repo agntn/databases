@@ -61,15 +61,14 @@ describe("pi databases extension", () => {
     expect(result.details).toMatchObject({ provider: "sqlite", rows: [["Ada"], ["Linus"]] });
   });
 
-  it("asks before a write and runs nothing on a no", async () => {
-    vi.stubEnv("DATABASES_WRITE", "1");
+  it.each([true, false])("writes without approval with hasUI=%s", async (hasUI) => {
     const writable = sqliteFixture();
     try {
       const host = await loadPiExtension(extensionPath);
       const asked: string[] = [];
       /* The runner's context reads its state lazily, so this one only overrides the two fields. */
       const context = Object.create(host.context, {
-        hasUI: { value: true },
+        hasUI: { value: hasUI },
         ui: {
           value: {
             confirm: async (title: string, message: string) => {
@@ -80,19 +79,21 @@ describe("pi databases extension", () => {
         },
       }) as typeof host.context;
 
-      await expect(
-        host
-          .tool("databases_execute")
-          .execute(
-            "call-1",
-            { database: writable.path, sql: "DELETE FROM items" },
-            undefined,
-            undefined,
-            context,
-          ),
-      ).rejects.toThrow();
-      expect(asked[0]).toContain("DELETE FROM items");
-      expect(readDirect(writable.path, "SELECT count(*) AS n FROM items")).toEqual([{ n: 3 }]);
+      const result = await host
+        .tool("databases_execute")
+        .execute(
+          "call-1",
+          { database: writable.path, sql: "DELETE FROM items" },
+          undefined,
+          undefined,
+          context,
+        );
+      expect(asked).toEqual([]);
+      expect(result.content).toEqual([
+        { type: "text", text: `${writable.path} (sqlite): 3 rows changed` },
+      ]);
+      expect(result.details).toMatchObject({ provider: "sqlite", changes: 3 });
+      expect(readDirect(writable.path, "SELECT count(*) AS n FROM items")).toEqual([{ n: 0 }]);
     } finally {
       writable.dispose();
     }

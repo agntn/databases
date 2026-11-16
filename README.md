@@ -18,7 +18,7 @@ Docs: [databases.agntn.dev](https://databases.agntn.dev).
 - 🗃️ **One interface, three engines.** Inspect SQLite, Postgres and Cloudflare D1.
 - 🔒 **Reads stay reads.** Each engine refuses a write on its own.
 - 🛑 **One statement per call.** A second command makes the whole call fail.
-- ✍️ **Writes need a switch.** `execute` is off unless `DATABASES_WRITE=1`.
+- ✍️ **Experimental writes are enabled.** `execute` needs no environment switch.
 - 📏 **Answers fit your context.** Get 50 rows by default, with a maximum of 1000 and a notice when more exist.
 - 🧾 **Values stay in their lanes.** Escaped cell text cannot pretend to be another row.
 - ⏱️ **Queries have a deadline.** Statements stop after 30 seconds.
@@ -87,7 +87,7 @@ The bare `databases` command comes from `pnpm add -g @agntn/databases`, or use `
 | `sample <database> <table>` | First rows of a table                                          |
 | `query <database> <sql>`    | Run one read-only statement (`sql` can be `-` for stdin)       |
 | `explain <database> <sql>`  | Plan of one statement                                          |
-| `execute <database> <sql>`  | Run one statement that may write (needs `DATABASES_WRITE=1`)   |
+| `execute <database> <sql>`  | Run one statement that may write                               |
 | `mcp`                       | Run the MCP server over stdio                                  |
 
 Find the options in the [CLI guide](https://databases.agntn.dev/guide/cli).
@@ -125,7 +125,7 @@ You can also use a named connection from `DATABASES_<NAME>_URL`. SQLite accepts 
 
 ## 🤖 Agents
 
-Give your agent six tools: `databases_providers`, `databases_schema_get`, `databases_table_sample`, `databases_query`, `databases_explain` and `databases_execute`. Named connections keep passwords out of the agent's transcript. The providers list shows passwords as `***`. Pi asks you before `databases_execute` runs.
+Give your agent six tools: `databases_providers`, `databases_schema_get`, `databases_table_sample`, `databases_query`, `databases_explain` and `databases_execute`. Named connections keep passwords out of the agent's transcript. The providers list shows passwords as `***`. The native Pi extension does not ask for confirmation before `databases_execute`.
 
 ```bash
 pi install npm:@agntn/databases

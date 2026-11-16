@@ -112,11 +112,21 @@ describe("databases CLI", () => {
       stderr:
         "Refused: the statement writes, changes a setting, attaches a file or calls a function outside the database. Only reads run here; use execute for a write [refused]\n",
     });
-    expect(run("execute", fixture.path, "DELETE FROM items")).toMatchObject({
-      code: 1,
-      stdout: "",
-    });
     expect(run("schema", "no such thing")).toMatchObject({ code: 1 });
+  });
+
+  it("executes writes without an environment switch", () => {
+    const writable = sqliteFixture();
+    try {
+      expect(run("execute", writable.path, "DELETE FROM items")).toEqual({
+        code: 0,
+        stderr: "",
+        stdout: `${writable.path} (sqlite): 3 rows changed\n`,
+      });
+      expect(run("query", writable.path, "SELECT count(*) FROM items").stdout).toContain("[0]");
+    } finally {
+      writable.dispose();
+    }
   });
 
   it("finds a named connection in the environment", () => {

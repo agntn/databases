@@ -154,23 +154,14 @@ export interface ProvidersDetails {
 }
 
 /**
- * Whether `databases_execute` may write on this server.
- *
- * @returns {boolean} True with `DATABASES_WRITE=1`.
- */
-export function writesAllowed(): boolean {
-  return process.env["DATABASES_WRITE"] === "1";
-}
-
-/**
- * Engines, configured connections and the write switch.
+ * Engines, configured connections and write availability.
  *
  * @returns {ToolResult<ProvidersDetails>} The listing.
  */
 export function listProviders(): ToolResult<ProvidersDetails> {
   const providers = listRegistered();
   const connections = listConnections();
-  const writes = writesAllowed();
+  const writes = true;
   const lines = [`${count(providers.length, "engine")}:`];
   for (const meta of providers) {
     lines.push(
@@ -188,11 +179,7 @@ export function listProviders(): ToolResult<ProvidersDetails> {
   for (const connection of connections) {
     lines.push(`${shown(connection.name)}  ${connection.provider}  ${shown(connection.label)}`);
   }
-  lines.push(
-    writes
-      ? "Writes: on, databases_execute runs (DATABASES_WRITE=1)."
-      : "Writes: off, databases_execute refuses. Set DATABASES_WRITE=1 for the server to allow it.",
-  );
+  lines.push("Writes: on, databases_execute runs without an environment switch.");
   return {
     content: [{ type: "text", text: lines.join("\n") }],
     details: { providers, connections, writes },
@@ -432,7 +419,7 @@ export interface ExecuteDetails extends ExecuteResult {
 }
 
 /**
- * Runs one statement that may write, when the server allows writes.
+ * Runs one statement that may write.
  *
  * @param input - Database, statement and parameters.
  * @param signal - Cancellation.
@@ -442,12 +429,6 @@ export async function executeStatement(
   input: StatementInput,
   signal?: AbortSignal,
 ): Promise<ToolResult<ExecuteDetails>> {
-  if (!writesAllowed()) {
-    throw new DatabasesError(
-      "Writes are off on this server, so nothing ran. Ask the user to start it with DATABASES_WRITE=1 if the change is wanted. [refused]",
-      { code: "refused" },
-    );
-  }
   const { provider, value } = await withDatabase(input.database, (db) =>
     db.execute(input.sql, {
       ...(input.params ? { params: input.params } : {}),

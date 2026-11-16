@@ -63,7 +63,7 @@ export const providersTool = defineTool({
   name: "databases_providers",
   title: "List Database Providers",
   description:
-    "List the engines this server reads (SQLite, Postgres, Cloudflare D1) with how a reference names each and how read-only is enforced, then the connections configured as DATABASES_<NAME>_URL with their passwords hidden, and whether databases_execute may write. Nothing connects.",
+    "List the engines this server reads (SQLite, Postgres, Cloudflare D1) with how a reference names each and how read-only is enforced, then the connections configured as DATABASES_<NAME>_URL with their passwords hidden, and the write availability of databases_execute. Nothing connects.",
   snippet: "Use databases_providers to see which database connections are configured.",
   guidelines: ["Call databases_providers first to learn the connection names to pass as database."],
   effect: "read",
@@ -193,7 +193,7 @@ export const executeTool = defineTool({
   name: "databases_execute",
   title: "Execute Statement",
   description:
-    "Run one statement that may change the database (INSERT, UPDATE, DELETE, DDL) and return how many rows it changed. Off unless the server runs with DATABASES_WRITE=1; a refusal says so. In Postgres it runs in its own transaction. One statement per call.",
+    "Run one statement that may change the database (INSERT, UPDATE, DELETE, DDL) and return how many rows it changed. Writes are enabled by default in this experimental package. In Postgres it runs in its own transaction. One statement per call.",
   snippet:
     "Use databases_execute only to change data, and only when the user asked for the change.",
   guidelines: [
@@ -204,7 +204,7 @@ export const executeTool = defineTool({
   openWorld: true,
   cli: {
     command: "execute",
-    description: "Run one statement that may write (needs DATABASES_WRITE=1)",
+    description: "Run one statement that may write",
     positional: ["database", "sql"],
     plain: ["database"],
     stdin: ["sql"],
