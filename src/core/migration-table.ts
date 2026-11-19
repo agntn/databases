@@ -135,18 +135,38 @@ export function hasStatements(sql: string): boolean {
  * @throws {DatabasesError} `query` for a bad name, checksum or time, or a script with no SQL.
  */
 export function checkMigration(script: Readonly<MigrationScript>): void {
-  const fail = (message: string): never => {
-    throw new DatabasesError(message, { code: "query" });
-  };
-  if (!isMigrationName(script.name)) fail(NAME_RULE);
+  const problem = recordProblem(script) ?? sqlProblem(script);
+  if (problem !== undefined) throw new DatabasesError(problem, { code: "query" });
+}
+
+/**
+ * What is wrong with the fields that go into the table, if anything.
+ *
+ * @param script - The script.
+ * @returns {string | undefined} The problem.
+ */
+function recordProblem(script: Readonly<MigrationScript>): string | undefined {
+  if (!isMigrationName(script.name)) return NAME_RULE;
   if (typeof script.checksum !== "string" || !CHECKSUM.test(script.checksum)) {
-    fail("A migration checksum is SHA-256 in 64 lowercase hex digits");
+    return "A migration checksum is SHA-256 in 64 lowercase hex digits";
   }
   if (typeof script.appliedAt !== "string" || !ISO_TIME.test(script.appliedAt)) {
-    fail("appliedAt is a UTC time as Date#toISOString writes it");
+    return "appliedAt is a UTC time as Date#toISOString writes it";
   }
+  return undefined;
+}
+
+/**
+ * What is wrong with the SQL itself, if anything.
+ *
+ * @param script - The script, its record already checked.
+ * @returns {string | undefined} The problem.
+ */
+function sqlProblem(script: Readonly<MigrationScript>): string | undefined {
   if (typeof script.sql !== "string" || script.sql.length > MAX_MIGRATION_LENGTH) {
-    fail(`A migration is text of at most ${MAX_MIGRATION_LENGTH} characters`);
+    return `A migration is text of at most ${MAX_MIGRATION_LENGTH} characters`;
   }
-  if (!hasStatements(script.sql)) fail(`${script.name} has no SQL yet, only comments`);
+  if (script.sql.includes("\0")) return `${script.name} holds a NUL, where SQLite stops reading`;
+  if (!hasStatements(script.sql)) return `${script.name} has no SQL yet, only comments`;
+  return undefined;
 }

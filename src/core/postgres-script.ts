@@ -12,14 +12,14 @@ const DOLLAR = /\$(?:[A-Za-z_]\w*)?\$/uy;
 
 const LINE_END = /[\n\r]/gu;
 
-/** What `CREATE [OR REPLACE]` makes when a `BEGIN ATOMIC` body may follow. */
-const ROUTINE = new Set(["function", "procedure"]);
+/** The only statements where `BEGIN ATOMIC` opens a body. */
+const ROUTINE = /^create (?:or replace )?(?:function|procedure)\b/u;
 
 /** Reads a Postgres script one token at a time. */
 class ScriptReader {
   readonly #sql: string;
   #at = 0;
-  /** Lower-case words of the statement read so far, the first two only. */
+  /** Lower-case words of the statement read so far, the first four only. */
   #words: string[] = [];
   /** The statement creates a function or procedure, the only place `BEGIN ATOMIC` opens a body. */
   #routine = false;
@@ -73,9 +73,11 @@ class ScriptReader {
    * @param word - Lower case, or `""` for punctuation and quoted text.
    */
   #note(word: string): void {
-    if (this.#words[0] === "create" && ROUTINE.has(word)) this.#routine = true;
+    if (this.#words.length < 4) {
+      this.#words.push(word);
+      this.#routine ||= ROUTINE.test(this.#words.join(" "));
+    }
     this.#nest(word);
-    if (this.#words.length < 2) this.#words.push(word);
     this.#last = word;
   }
 
@@ -99,7 +101,7 @@ class ScriptReader {
     const [first, second] = this.#words;
     if (first === undefined || !CONTROL.has(first)) return undefined;
     if (first === "rollback" && second === "to") return undefined;
-    return this.#words.filter(Boolean).join(" ");
+    return [first, second].filter(Boolean).join(" ");
   }
 
   /**

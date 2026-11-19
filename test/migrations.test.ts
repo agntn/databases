@@ -355,6 +355,7 @@ describe("checkMigration", () => {
     ["an upper-case checksum", { checksum: "A".repeat(64) }],
     ["a time with a quote", { appliedAt: "2026-11-19T10:00:00Z'); DROP TABLE x; --" }],
     ["a time that isn't UTC", { appliedAt: "2026-11-19" }],
+    ["sql with a NUL", { sql: "CREATE TABLE a (x);\u0000CREATE TABLE b (x);" }],
     ["sql that isn't text", { sql: 42 }],
   ])("refuses %s", (_label, change) => {
     expect(() => checkMigration({ ...good, ...change } as MigrationScript)).toThrow(DatabasesError);
@@ -378,6 +379,7 @@ describe("transactionControl", () => {
     ["SELECT $1, a$b FROM t; END;", "end"],
     ["CREATE TABLE a (x int); -- comment\rCOMMIT;\rCREATE TABLE b (x int);", "commit"],
     ["CREATE TABLE t (begin int); SELECT begin atomic FROM t; COMMIT; SELECT 1/0;", "commit"],
+    ["CREATE VIEW function AS SELECT begin atomic FROM t; COMMIT; SELECT 1/0;", "commit"],
     [
       "CREATE OR REPLACE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; END; COMMIT",
       "commit",
