@@ -362,6 +362,9 @@ describe("checkMigration", () => {
 
   it("takes a well formed script", () => {
     expect(() => checkMigration(good)).not.toThrow();
+    expect(() =>
+      checkMigration({ ...good, sql: "-- users\rCREATE TABLE users (id int);" }),
+    ).not.toThrow();
   });
 });
 

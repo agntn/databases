@@ -121,7 +121,7 @@ export function recordMigrationLiteral(script: Readonly<MigrationScript>): strin
 export function hasStatements(sql: string): boolean {
   return (
     sql
-      .replaceAll(/--[^\n]*/gu, "")
+      .replaceAll(/--[^\n\r]*/gu, "")
       .replaceAll(/\/\*[\s\S]*?(?:\*\/|$)/gu, "")
       .replaceAll(";", "")
       .trim() !== ""
