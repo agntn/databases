@@ -12,7 +12,8 @@ import { existsSync } from "node:fs";
 import { constants, DatabaseSync, type StatementSync } from "node:sqlite";
 import { DatabasesError } from "./core/errors.ts";
 import {
-  CREATE_MIGRATION_TABLE,
+  alreadyApplied,
+  createMigrationTable,
   MIGRATION_TABLE,
   recordMigration,
 } from "./core/migration-table.ts";
@@ -187,15 +188,19 @@ function runMigrate(job: Extract<ChildJob, { kind: "migrate" }>): ChildResult[] 
   try {
     db.exec("BEGIN IMMEDIATE");
     try {
-      db.exec(CREATE_MIGRATION_TABLE);
+      db.exec(createMigrationTable());
       const { name, checksum, sql, appliedAt } = job.script;
-      const seen = db.prepare(`SELECT 1 FROM ${MIGRATION_TABLE} WHERE name = ?`).get(name);
-      if (seen === undefined) {
+      const row = db.prepare(`SELECT checksum FROM ${MIGRATION_TABLE} WHERE name = ?`).get(name);
+      const done = alreadyApplied(
+        job.script,
+        row === undefined ? undefined : String(row["checksum"]),
+      );
+      if (!done) {
         runScript(db, sql);
         db.prepare(recordMigration("?")).run(name, checksum, appliedAt);
       }
       db.exec("COMMIT");
-      return [{ applied: seen === undefined }];
+      return [{ applied: !done }];
     } catch (error) {
       if (db.isTransaction) db.exec("ROLLBACK");
       throw error;

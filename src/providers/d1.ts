@@ -18,8 +18,9 @@ import {
   splitName,
 } from "../core/provider.ts";
 import {
+  alreadyApplied,
   checkMigration,
-  CREATE_MIGRATION_TABLE,
+  createMigrationTable,
   recordMigrationLiteral,
   type AppliedMigration,
   type MigrateOptions,
@@ -418,9 +419,10 @@ export class D1 extends Provider {
   ): Promise<{ applied: boolean }> {
     checkMigration(script);
     const done = await this.appliedMigrations(options);
-    if (done.some((migration) => migration.name === script.name)) return { applied: false };
+    const recorded = done.find((migration) => migration.name === script.name)?.checksum;
+    if (alreadyApplied(script, recorded)) return { applied: false };
     const session = await this.#open(options.signal);
-    const sql = [CREATE_MIGRATION_TABLE, recordMigrationLiteral(script), script.sql].join("\n;\n");
+    const sql = [createMigrationTable(), recordMigrationLiteral(script), script.sql].join("\n;\n");
     try {
       await this.#request<unknown>(
         session.credential,

@@ -18,8 +18,9 @@ import {
   splitName,
 } from "../core/provider.ts";
 import {
+  alreadyApplied,
   checkMigration,
-  CREATE_MIGRATION_TABLE,
+  createMigrationTable,
   MIGRATION_TABLE,
   MIGRATION_TIMEOUT_MS,
   recordMigration,
@@ -105,6 +106,11 @@ const TRANSACTION_ID = "SELECT pg_current_xact_id()::text";
 const SAME_TRANSACTION = "SELECT pg_current_xact_id_if_assigned()::text";
 
 const APPLIED = `SELECT name, checksum, applied_at FROM ${MIGRATION_TABLE} ORDER BY name`;
+
+/** The table's schema-qualified name, fixed before a file can move `search_path`. */
+const LEDGER = `SELECT format('%I.%I', n.nspname, c.relname)
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.oid = to_regclass('${MIGRATION_TABLE}')`;
 
 const TYPE_NAMES = `SELECT oid::int, format_type(oid, NULL) FROM pg_type WHERE oid = ANY ($1::oid[])`;
 
@@ -482,17 +488,20 @@ export class Postgres extends Provider {
           EXTENDED,
         );
         await tx.unsafe(MIGRATION_LOCK, [], EXTENDED);
-        await tx.unsafe(CREATE_MIGRATION_TABLE, [], EXTENDED);
-        const seen = await this.#rows(tx, `SELECT 1 FROM ${MIGRATION_TABLE} WHERE name = $1`, [
+        await tx.unsafe(createMigrationTable(), [], EXTENDED);
+        const table = String((await this.#rows(tx, LEDGER))[0]?.[0]);
+        const [seen] = await this.#rows(tx, `SELECT checksum FROM ${table} WHERE name = $1`, [
           script.name,
         ]);
-        if (seen.length > 0) return { applied: false };
+        if (alreadyApplied(script, seen === undefined ? undefined : String(seen[0]))) {
+          return { applied: false };
+        }
         const before = (await this.#rows(tx, TRANSACTION_ID))[0]?.[0];
         await tx.unsafe(script.sql, [], { simple: true });
         const after = (await this.#rows(tx, SAME_TRANSACTION))[0]?.[0];
         if (after !== before) throw ownTransaction(script.name);
         await tx.unsafe(
-          recordMigration("$"),
+          recordMigration("$", table),
           [script.name, script.checksum, script.appliedAt],
           EXTENDED,
         );

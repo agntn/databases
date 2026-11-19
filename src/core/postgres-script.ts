@@ -10,6 +10,8 @@ const WORD = /[A-Za-z_][\w$]*/uy;
 
 const DOLLAR = /\$(?:[A-Za-z_]\w*)?\$/uy;
 
+const LINE_END = /[\n\r]/gu;
+
 /** Reads a Postgres script one token at a time. */
 class ScriptReader {
   readonly #sql: string;
@@ -92,7 +94,7 @@ class ScriptReader {
    */
   #skipQuoted(char: string): boolean {
     const next = this.#sql[this.#at + 1] ?? "";
-    if (char === "-" && next === "-") return this.#skipPast("\n", 2);
+    if (char === "-" && next === "-") return this.#skipLine();
     if (char === "/" && next === "*") return this.#skipComment();
     if (char === "'") return this.#skipQuote("'", this.#escapes());
     if (char === '"') return this.#skipQuote('"', false);
@@ -118,6 +120,17 @@ class ScriptReader {
   #skipPast(end: string, from: number): true {
     const close = this.#sql.indexOf(end, this.#at + from);
     this.#at = close < 0 ? this.#sql.length : close + end.length;
+    return true;
+  }
+
+  /**
+   * Moves past a `--` comment, which Postgres ends at CR or LF.
+   *
+   * @returns {true} Always.
+   */
+  #skipLine(): true {
+    LINE_END.lastIndex = this.#at;
+    this.#at = LINE_END.exec(this.#sql) === null ? this.#sql.length : LINE_END.lastIndex;
     return true;
   }
 

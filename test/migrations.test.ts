@@ -290,6 +290,45 @@ describe("migrations on SQLite", () => {
     expect(tablesOf(db)).toEqual([]);
   });
 
+  it("reads every record of a long history", async () => {
+    const { db, dir } = project();
+    const sqlite = new DatabaseSync(db);
+    sqlite.exec(
+      "CREATE TABLE databases_migrations (name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL)",
+    );
+    const insert = sqlite.prepare("INSERT INTO databases_migrations VALUES (?, ?, ?)");
+    for (let index = 1; index <= 1500; index += 1) {
+      insert.run(
+        `${String(index).padStart(4, "0")}_add_reviews.sql`,
+        "a".repeat(64),
+        "2026-11-19T10:00:00.000Z",
+      );
+    }
+    sqlite.close();
+
+    expect(await (await open(db)).appliedMigrations()).toHaveLength(1500);
+    expect((await migrationStatus(await open(db), { directory: dir })).missing).toHaveLength(1500);
+  });
+
+  it("refuses a file another run recorded with different text", async () => {
+    const { db, dir } = project();
+    file(dir, "0001_a.sql", "CREATE TABLE a (x);");
+    const provider = await open(db);
+    await applyMigrations(provider, { directory: dir });
+
+    const failed = await failure(
+      provider.migrate({
+        name: "0001_a.sql",
+        checksum: "b".repeat(64),
+        sql: "CREATE TABLE a (x, y);",
+        appliedAt: "2026-11-19T10:00:00.000Z",
+      }),
+    );
+
+    expect(failed.code).toBe("refused");
+    expect(failed.message).toContain("0001_a.sql was applied with different text");
+  });
+
   it("treats a missing folder as no migrations", async () => {
     const { db, dir } = project();
 
@@ -337,6 +376,7 @@ describe("transactionControl", () => {
     ["INSERT INTO t VALUES (E'\\''); COMMIT", "commit"],
     ['SELECT "a;""b" FROM t; COMMIT', "commit"],
     ["SELECT $1, a$b FROM t; END;", "end"],
+    ["CREATE TABLE a (x int); -- comment\rCOMMIT;\rCREATE TABLE b (x int);", "commit"],
     [
       "CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT CASE WHEN a > 0 THEN 1 ELSE 0 END; SELECT a; END; COMMIT;",
       "commit",
@@ -353,6 +393,7 @@ describe("transactionControl", () => {
     "CREATE FUNCTION f() RETURNS int AS $body$ ; commit; $body$ LANGUAGE sql; SELECT 1",
     "INSERT INTO t VALUES ('; COMMIT; '), (E'\\'; COMMIT; '), ('it''s');",
     "/* a /* nested; */ COMMIT; */ SELECT 1",
+    "SELECT 1; -- a comment that hides\nnothing",
     "CREATE PROCEDURE p() LANGUAGE sql BEGIN ATOMIC INSERT INTO t VALUES (1); END",
     'CREATE TABLE "end" (x int);',
     "DO $$ BEGIN COMMIT; END $$;",
@@ -468,7 +509,9 @@ describe("migrations on D1", () => {
             ? [[1]]
             : []
           : body.sql.startsWith("SELECT name, checksum")
-            ? recorded
+            ? recorded.filter(
+                (row) => String(row[0]) > JSON.stringify(body.params?.[0] ?? "").slice(1, -1),
+              )
             : [];
         const results =
           path === "query"
@@ -497,6 +540,25 @@ describe("migrations on D1", () => {
       /^CREATE TABLE IF NOT EXISTS databases_migrations[\s\S]*\n;\nINSERT INTO databases_migrations \(name, checksum, applied_at\) VALUES \('0001_a\.sql', '[\da-f]{64}', '\d{4}-[^']+Z'\)\n;\nCREATE TABLE a \(x\); \/\* unclosed$/u,
     );
     expect(batch[0]?.params).toBeUndefined();
+  });
+
+  it("refuses a file the table holds with another checksum", async () => {
+    const { dir } = project();
+    file(dir, "0001_a.sql", "CREATE TABLE a (x);");
+    const provider = await open(`d1:${DATABASE}`);
+    recorded = [["0001_a.sql", "b".repeat(64), "2026-11-19T10:00:00.000Z"]];
+
+    const failed = await failure(
+      provider.migrate({
+        name: "0001_a.sql",
+        checksum: "c".repeat(64),
+        sql: "CREATE TABLE a (x);",
+        appliedAt: "2026-11-19T10:00:00.000Z",
+      }),
+    );
+
+    expect(failed.code).toBe("refused");
+    expect(sent.some((request) => request.path === "query")).toBe(false);
   });
 
   it("skips a file the table already has", async () => {
@@ -572,6 +634,41 @@ describe.skipIf(!postgresUrl)("migrations on Postgres", () => {
     );
     expect((await failure(applyMigrations(provider, { directory: dir }))).code).toBe("query");
     expect(await tables()).toEqual([]);
+  });
+
+  it("records into the table it created when a file moves search_path", async () => {
+    const { dir } = project();
+    file(
+      dir,
+      "0001_app.sql",
+      "CREATE SCHEMA databases_migrations_app;\nSET LOCAL search_path TO databases_migrations_app;\nCREATE TABLE users (id int);",
+    );
+    const provider = await open(target());
+
+    try {
+      expect((await applyMigrations(provider, { directory: dir })).applied).toHaveLength(1);
+      expect((await migrationStatus(provider, { directory: dir })).pending).toEqual([]);
+    } finally {
+      await admin.unsafe("DROP SCHEMA IF EXISTS databases_migrations_app CASCADE");
+    }
+  });
+
+  it("refuses a file another run recorded with different text", async () => {
+    const { dir } = project();
+    file(dir, "0001_a.sql", "CREATE TABLE a (x int);");
+    const provider = await open(target());
+    await applyMigrations(provider, { directory: dir });
+
+    const failed = await failure(
+      provider.migrate({
+        name: "0001_a.sql",
+        checksum: "b".repeat(64),
+        sql: "CREATE TABLE a (x int, y int);",
+        appliedAt: "2026-11-19T10:00:00.000Z",
+      }),
+    );
+
+    expect(failed.code).toBe("refused");
   });
 
   it("records a migration once when two runs race", async () => {

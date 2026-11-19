@@ -11,12 +11,19 @@ export const MAX_MIGRATION_LENGTH = 5_000_000;
 /** Deadline of one migration in SQLite and Postgres. */
 export const MIGRATION_TIMEOUT_MS = 300_000;
 
-/** Created inside the first migration's transaction, so a failed run leaves no table. */
-export const CREATE_MIGRATION_TABLE = `CREATE TABLE IF NOT EXISTS ${MIGRATION_TABLE} (
+/**
+ * Creates the table inside the first migration's transaction, so a failed run leaves none.
+ *
+ * @param table - The table, schema qualified where the engine needs it.
+ * @returns {string} The statement.
+ */
+export function createMigrationTable(table: string = MIGRATION_TABLE): string {
+  return `CREATE TABLE IF NOT EXISTS ${table} (
   name TEXT PRIMARY KEY,
   checksum TEXT NOT NULL,
   applied_at TEXT NOT NULL
 )`;
+}
 
 /** `0001_init.sql`: no path, no quote, no leading dot. */
 const NAME = /^\w[\w.-]{0,199}\.sql$/u;
@@ -66,11 +73,32 @@ export interface MigrateOptions {
  * The insert that records one migration, with placeholders in the engine's own style.
  *
  * @param style - `?` for SQLite and D1, `$` for Postgres.
+ * @param table - The table, schema qualified where the engine needs it.
  * @returns {string} The statement, taking name, checksum and time in that order.
  */
-export function recordMigration(style: "?" | "$"): string {
+export function recordMigration(style: "?" | "$", table: string = MIGRATION_TABLE): string {
   const values = style === "?" ? "?, ?, ?" : "$1, $2, $3";
-  return `INSERT INTO ${MIGRATION_TABLE} (name, checksum, applied_at) VALUES (${values})`;
+  return `INSERT INTO ${table} (name, checksum, applied_at) VALUES (${values})`;
+}
+
+/**
+ * Whether a recorded migration matches the script, so a rerun can skip it.
+ *
+ * @param script - What the caller wants to run.
+ * @param recorded - The checksum on record for that name, if any.
+ * @returns {boolean} `true` when the record is the same file, `false` when there is none.
+ * @throws {DatabasesError} `refused` when the record holds another text under that name.
+ */
+export function alreadyApplied(
+  script: Readonly<MigrationScript>,
+  recorded: string | undefined,
+): boolean {
+  if (recorded === undefined) return false;
+  if (recorded === script.checksum) return true;
+  throw new DatabasesError(
+    `Refused: ${script.name} was applied with different text. Another run got there first; check the database before going on`,
+    { code: "refused" },
+  );
 }
 
 /**
