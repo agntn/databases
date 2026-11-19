@@ -4,6 +4,7 @@
  */
 
 import { DatabasesError } from "./errors.ts";
+import { MIGRATION_TABLE, type AppliedMigration } from "./migration-table.ts";
 import type {
   Cell,
   ColumnInfo,
@@ -171,4 +172,23 @@ export function planTree(rows: readonly (readonly Cell[])[]): PlanResult {
     lines.push(`${"  ".repeat(level)}${text(row[3])}`);
   }
   return { lines };
+}
+
+const HAS_MIGRATIONS = `SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = '${MIGRATION_TABLE}'`;
+
+const APPLIED = `SELECT name, checksum, applied_at FROM ${MIGRATION_TABLE} ORDER BY name`;
+
+/**
+ * The rows of the migration table, none when it doesn't exist yet.
+ *
+ * @param read - Runs one read statement.
+ * @returns {Promise<AppliedMigration[]>} Oldest name first.
+ */
+export async function appliedFrom(read: ReadRows): Promise<AppliedMigration[]> {
+  if ((await read(HAS_MIGRATIONS, [])).length === 0) return [];
+  return (await read(APPLIED, [])).map((row) => ({
+    name: text(row[0]),
+    checksum: text(row[1]),
+    appliedAt: text(row[2]),
+  }));
 }

@@ -25,7 +25,7 @@ const METRICS = [
     label: "Tools",
     value: String(TOOLS.length),
     unit: "",
-    note: "one of them writes",
+    note: "reads, writes, migrations",
     accent: false,
   },
   {

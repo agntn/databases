@@ -17,6 +17,17 @@ import {
   rowLimit,
   splitName,
 } from "../core/provider.ts";
+import {
+  checkMigration,
+  CREATE_MIGRATION_TABLE,
+  MIGRATION_TABLE,
+  MIGRATION_TIMEOUT_MS,
+  recordMigration,
+  type AppliedMigration,
+  type MigrateOptions,
+  type MigrationScript,
+} from "../core/migration-table.ts";
+import { transactionControl } from "../core/postgres-script.ts";
 import { scrub, secretsOf } from "../core/reference.ts";
 import type {
   Cell,
@@ -84,6 +95,16 @@ const FOREIGN_KEYS = `SELECT
   ARRAY(SELECT a.attname FROM unnest(c.confkey) WITH ORDINALITY AS u(num, ord)
     JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = u.num ORDER BY u.ord)
 FROM pg_constraint c WHERE c.conrelid = $1::oid AND c.contype = 'f' ORDER BY c.conname`;
+
+/** One lock for every migration run on the database, so two runs take turns. */
+const MIGRATION_LOCK = `SELECT pg_advisory_xact_lock(hashtext('${MIGRATION_TABLE}'))`;
+
+/** The transaction's id, assigning one if it had none, so a later check sees the same one. */
+const TRANSACTION_ID = "SELECT pg_current_xact_id()::text";
+
+const SAME_TRANSACTION = "SELECT pg_current_xact_id_if_assigned()::text";
+
+const APPLIED = `SELECT name, checksum, applied_at FROM ${MIGRATION_TABLE} ORDER BY name`;
 
 const TYPE_NAMES = `SELECT oid::int, format_type(oid, NULL) FROM pg_type WHERE oid = ANY ($1::oid[])`;
 
@@ -173,6 +194,19 @@ function errorMessage(
  */
 function bind(params: readonly Param[]): postgres.ParameterOrJSON<never>[] {
   return [...params];
+}
+
+/**
+ * The failure for a migration that ended the transaction it was given.
+ *
+ * @param name - The migration.
+ * @returns {DatabasesError} The error.
+ */
+function ownTransaction(name: string): DatabasesError {
+  return new DatabasesError(
+    `${name} ended its transaction while it ran, so what came before that stays and nothing is recorded. Check the database, then drop the transaction control from the file`,
+    { code: "query", provider: "postgres" },
+  );
 }
 
 export class Postgres extends Provider {
@@ -397,6 +431,72 @@ export class Postgres extends Provider {
       async (tx) => {
         const result = await tx.unsafe(sql, bind(params), EXTENDED);
         return { changes: result.count };
+      },
+      options.signal,
+    );
+  }
+
+  override async appliedMigrations(options: MigrateOptions = {}): Promise<AppliedMigration[]> {
+    const rows = await this.#transaction(
+      true,
+      async (tx) => {
+        const [found] = await this.#rows(tx, "SELECT to_regclass($1) IS NOT NULL", [
+          MIGRATION_TABLE,
+        ]);
+        return found?.[0] === true ? this.#rows(tx, APPLIED) : [];
+      },
+      options.signal,
+    );
+    return rows.map((row) => ({
+      name: String(row[0]),
+      checksum: String(row[1]),
+      appliedAt: String(row[2]),
+    }));
+  }
+
+  /**
+   * Sends the file over the simple protocol; the id check catches a hidden COMMIT.
+   *
+   * @param script - The file's SQL with its name, checksum and time.
+   * @param options - Cancellation.
+   * @returns {Promise<{ applied: boolean }>} `false` when the table already had that name.
+   */
+  override async migrate(
+    script: MigrationScript,
+    options: MigrateOptions = {},
+  ): Promise<{ applied: boolean }> {
+    checkMigration(script);
+    const control = transactionControl(script.sql);
+    if (control !== undefined) {
+      throw new DatabasesError(
+        `Refused: ${script.name} runs ${control.toUpperCase()}. Each file already runs in one transaction with its record, so drop its BEGIN, COMMIT and ROLLBACK`,
+        { code: "refused", provider: Postgres.key },
+      );
+    }
+    return this.#transaction(
+      false,
+      async (tx) => {
+        await tx.unsafe(
+          "SELECT set_config('statement_timeout', $1, true)",
+          [String(MIGRATION_TIMEOUT_MS)],
+          EXTENDED,
+        );
+        await tx.unsafe(MIGRATION_LOCK, [], EXTENDED);
+        await tx.unsafe(CREATE_MIGRATION_TABLE, [], EXTENDED);
+        const seen = await this.#rows(tx, `SELECT 1 FROM ${MIGRATION_TABLE} WHERE name = $1`, [
+          script.name,
+        ]);
+        if (seen.length > 0) return { applied: false };
+        const before = (await this.#rows(tx, TRANSACTION_ID))[0]?.[0];
+        await tx.unsafe(script.sql, [], { simple: true });
+        const after = (await this.#rows(tx, SAME_TRANSACTION))[0]?.[0];
+        if (after !== before) throw ownTransaction(script.name);
+        await tx.unsafe(
+          recordMigration("$"),
+          [script.name, script.checksum, script.appliedAt],
+          EXTENDED,
+        );
+        return { applied: true };
       },
       options.signal,
     );

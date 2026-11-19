@@ -5,6 +5,24 @@ export { create, listProviders, open, providers, register } from "./core/registr
 export { Provider } from "./core/provider.ts";
 export type { ProviderConstructor, ProviderMeta } from "./core/provider.ts";
 export {
+  applyMigrations,
+  createMigration,
+  DEFAULT_MIGRATIONS_DIRECTORY,
+  migrationStatus,
+  readMigrations,
+} from "./migrations.ts";
+export type {
+  ApplyMigrationsOptions,
+  ApplyMigrationsResult,
+  CreatedMigration,
+  CreateMigrationOptions,
+  MigrationDirectoryOptions,
+  MigrationFile,
+  MigrationStatus,
+} from "./migrations.ts";
+export { MIGRATION_TABLE } from "./core/migration-table.ts";
+export type { AppliedMigration, MigrateOptions, MigrationScript } from "./core/migration-table.ts";
+export {
   connectionVariable,
   listConnections,
   parseReference,

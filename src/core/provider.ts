@@ -8,6 +8,7 @@ import {
   MAX_SQL_LENGTH,
 } from "./limits.ts";
 import { DatabasesError } from "./errors.ts";
+import type { AppliedMigration, MigrateOptions, MigrationScript } from "./migration-table.ts";
 import type { DatabaseTarget } from "./reference.ts";
 import type {
   ExecuteOptions,
@@ -88,6 +89,44 @@ export abstract class Provider {
    * @param options - Parameters and cancellation.
    */
   abstract execute(sql: string, options?: ExecuteOptions): Promise<ExecuteResult>;
+
+  /**
+   * Rows of the migration table, none before the first migration.
+   *
+   * @param options - Cancellation.
+   * @returns {Promise<AppliedMigration[]>} Rows of the migration table.
+   * @throws {DatabasesError} `unsupported` for a provider without migrations.
+   */
+  appliedMigrations(options?: MigrateOptions): Promise<AppliedMigration[]> {
+    void options;
+    return Promise.reject(this.#noMigrations());
+  }
+
+  /**
+   * Runs one migration and its record together. `applyMigrations` is the usual way in.
+   *
+   * @param script - The file's SQL with its name, checksum and time.
+   * @param options - Cancellation.
+   * @returns {Promise<{ applied: boolean }>} `false` when the table already had that name.
+   * @throws {DatabasesError} `unsupported` for a provider without migrations.
+   */
+  migrate(script: MigrationScript, options?: MigrateOptions): Promise<{ applied: boolean }> {
+    void script;
+    void options;
+    return Promise.reject(this.#noMigrations());
+  }
+
+  /**
+   * The error a provider without migrations answers with.
+   *
+   * @returns {DatabasesError} The error.
+   */
+  #noMigrations(): DatabasesError {
+    return new DatabasesError(`The ${this.key} provider doesn't run migrations`, {
+      code: "unsupported",
+      provider: this.key,
+    });
+  }
 
   /**
    * Quotes a table name, `schema.table` included, for this engine.

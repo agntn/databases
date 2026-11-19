@@ -7,7 +7,20 @@ import {
   rowLimit,
   splitName,
 } from "../core/provider.ts";
-import { describeTable, listTables, planTree, type ReadRows } from "../core/sqlite-catalog.ts";
+import {
+  checkMigration,
+  MIGRATION_TIMEOUT_MS,
+  type AppliedMigration,
+  type MigrateOptions,
+  type MigrationScript,
+} from "../core/migration-table.ts";
+import {
+  appliedFrom,
+  describeTable,
+  listTables,
+  planTree,
+  type ReadRows,
+} from "../core/sqlite-catalog.ts";
 import { runChild, type ChildResult, type ChildStep } from "../core/sqlite-protocol.ts";
 import type {
   ExecuteOptions,
@@ -94,6 +107,22 @@ export class Sqlite extends Provider {
       { signal: options.signal },
     );
     return result && "changes" in result ? result : { changes: 0 };
+  }
+
+  override async appliedMigrations(options: MigrateOptions = {}): Promise<AppliedMigration[]> {
+    return appliedFrom(this.#reader(options.signal));
+  }
+
+  override async migrate(
+    script: MigrationScript,
+    options: MigrateOptions = {},
+  ): Promise<{ applied: boolean }> {
+    checkMigration(script);
+    const [result] = await runChild(
+      { kind: "migrate", path: this.target.target, script },
+      { signal: options.signal, timeoutMs: MIGRATION_TIMEOUT_MS },
+    );
+    return { applied: result !== undefined && "applied" in result && result.applied };
   }
 
   protected quoteTable(name: string): string {

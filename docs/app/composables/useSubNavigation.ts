@@ -5,6 +5,7 @@ const NAV_ICONS: Record<string, string> = {
   "/guide/library": "i-lucide-library",
   "/guide/connections": "i-lucide-key-round",
   "/guide/read-only": "i-lucide-shield-check",
+  "/guide/migrations": "i-lucide-git-branch-plus",
   "/guide/agents": "i-lucide-bot",
   "/providers": "i-lucide-table",
   "/providers/sqlite": "i-simple-icons-sqlite",

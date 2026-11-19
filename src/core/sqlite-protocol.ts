@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DatabasesError, type DatabasesErrorCode } from "./errors.ts";
 import { STATEMENT_TIMEOUT_MS } from "./limits.ts";
+import type { MigrationScript } from "./migration-table.ts";
 import type { Cell, Column, Param } from "./types.ts";
 
 export interface ChildStep {
@@ -32,6 +33,12 @@ export type ChildJob =
       readonly schema: readonly string[];
       readonly sql: string;
       readonly write: boolean;
+    }
+  | {
+      /** Runs a migration and its record in one transaction, or rolls both back. */
+      readonly kind: "migrate";
+      readonly path: string;
+      readonly script: MigrationScript;
     };
 
 export type ChildResult =
@@ -41,7 +48,11 @@ export type ChildResult =
       readonly more: boolean;
       readonly cut: boolean;
     }
-  | { readonly changes: number; readonly lastInsertId: string };
+  | { readonly changes: number; readonly lastInsertId: string }
+  | {
+      /** `false` when the table already had it, so nothing ran. */
+      readonly applied: boolean;
+    };
 
 export type ChildAnswer =
   | { readonly results: readonly ChildResult[] }

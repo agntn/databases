@@ -7,7 +7,7 @@ defineProps<{ samples: readonly Sample[]; index: number }>();
 const emit = defineEmits<{ step: [delta: number]; pause: [paused: boolean] }>();
 
 const INSTALL = "pnpm add @agntn/databases";
-/** Tools that may change data. They stay off until the server says otherwise. */
+/** Tools that may change data or files. */
 const WRITING = TOOLS.filter((tool) => tool.effect !== "read");
 const { copied, copy } = useCopied();
 </script>
@@ -43,12 +43,12 @@ const { copied, copy } = useCopied();
         <div>
           <dt>Tools</dt>
           <dd>{{ TOOLS.length }}</dd>
-          <dd class="hero-metric-sub">schema, rows, plans, one write tool</dd>
+          <dd class="hero-metric-sub">reads, writes, migrations</dd>
         </div>
         <div>
           <dt>Writes by default</dt>
           <dd class="hero-metric-accent">{{ WRITING.length }}</dd>
-          <dd class="hero-metric-sub">write tool, enabled by default</dd>
+          <dd class="hero-metric-sub">write tools, all on</dd>
         </div>
       </dl>
 
