@@ -4,6 +4,7 @@
  */
 
 import { DatabasesError } from "./errors.ts";
+import { MIGRATION_TABLE, type AppliedMigration } from "./migration-table.ts";
 import type {
   Cell,
   ColumnInfo,
@@ -171,4 +172,28 @@ export function planTree(rows: readonly (readonly Cell[])[]): PlanResult {
     lines.push(`${"  ".repeat(level)}${text(row[3])}`);
   }
   return { lines };
+}
+
+const HAS_MIGRATIONS = `SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = '${MIGRATION_TABLE}'`;
+
+/** One page of the migration table after a name, small enough that no answer cap trims it. */
+const APPLIED = `SELECT name, checksum, applied_at FROM ${MIGRATION_TABLE} WHERE name > ?1 ORDER BY name LIMIT 200`;
+
+/**
+ * The rows of the migration table, none when it doesn't exist yet.
+ *
+ * @param read - Runs one read statement.
+ * @returns {Promise<AppliedMigration[]>} Oldest name first.
+ */
+export async function appliedFrom(read: ReadRows): Promise<AppliedMigration[]> {
+  if ((await read(HAS_MIGRATIONS, [])).length === 0) return [];
+  const applied: AppliedMigration[] = [];
+  for (let after = ""; ;) {
+    const page = await read(APPLIED, [after]);
+    if (page.length === 0) return applied;
+    for (const row of page) {
+      applied.push({ name: text(row[0]), checksum: text(row[1]), appliedAt: text(row[2]) });
+    }
+    after = applied.at(-1)?.name ?? after;
+  }
 }

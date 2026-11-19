@@ -12,7 +12,16 @@ import { DatabasesError } from "./core/errors.ts";
 import { MAX_ROWS } from "./core/limits.ts";
 import type { Provider } from "./core/provider.ts";
 import { listConnections, type NamedConnection } from "./core/reference.ts";
+import type { AppliedMigration } from "./core/migration-table.ts";
 import { listProviders as listRegistered, open } from "./core/registry.ts";
+import {
+  applyMigrations,
+  createMigration,
+  migrationStatus,
+  type ApplyMigrationsResult,
+  type CreatedMigration,
+  type MigrationStatus,
+} from "./migrations.ts";
 import type { ProviderMeta } from "./core/provider.ts";
 import type {
   Column,
@@ -120,6 +129,26 @@ async function withDatabase<T>(
         code: error.code,
         ...(error.provider ? { provider: error.provider } : {}),
         ...(error.engineCode ? { engineCode: error.engineCode } : {}),
+        cause: error,
+      });
+    }
+    throw error;
+  }
+}
+
+/**
+ * Runs work without a database, failing in one clean line as `withDatabase` does.
+ *
+ * @param work - What to do.
+ * @returns {Promise<T>} Its result.
+ */
+async function withMessage<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof DatabasesError) {
+      throw new DatabasesError(`${shown(error.message)} [${error.code}]`, {
+        code: error.code,
         cause: error,
       });
     }
@@ -440,6 +469,159 @@ export async function executeStatement(
   ];
   if (value.lastInsertId !== undefined && value.lastInsertId !== "0") {
     lines.push(`Last insert id: ${shown(value.lastInsertId)}`);
+  }
+  return {
+    content: [{ type: "text", text: lines.join("\n") }],
+    details: { database: provider.target.label, provider: provider.key, ...value },
+  };
+}
+
+interface MigrationsInput {
+  readonly directory?: string;
+}
+
+/**
+ * The directory argument, reading `""`, which OMP sends for an unset string, as none given.
+ *
+ * @param input - The arguments.
+ * @returns {{ directory?: string }} The option for the migrations module.
+ */
+function directoryOption(input: MigrationsInput): { directory?: string } {
+  return input.directory === undefined || input.directory === ""
+    ? {}
+    : { directory: input.directory };
+}
+
+/**
+ * One applied migration as a line.
+ *
+ * @param migration - The record.
+ * @returns {string} Name and when it ran.
+ */
+function appliedLine(migration: Readonly<AppliedMigration>): string {
+  return `  ${shown(migration.name)}  ${shown(migration.appliedAt)}`;
+}
+
+/**
+ * Where a directory and a database stand, as lines.
+ *
+ * @param status - The comparison.
+ * @returns {string[]} Applied, pending, changed and missing, with the call that comes next.
+ */
+function statusLines(status: Readonly<MigrationStatus>): string[] {
+  const lines = [`${status.applied.length} applied, ${status.pending.length} pending`];
+  for (const migration of status.applied) lines.push(appliedLine(migration));
+  for (const file of status.pending) lines.push(`  ${shown(file.name)}  pending`);
+  if (status.changed.length > 0) {
+    lines.push(
+      `Changed after they ran: ${status.changed.map((m) => shown(m.name)).join(", ")}. Apply refuses until the old text is back; put the change in a new migration.`,
+    );
+  }
+  if (status.missing.length > 0) {
+    lines.push(
+      `Recorded but no file left: ${status.missing.map((m) => shown(m.name)).join(", ")}.`,
+    );
+  }
+  if (status.applied.length === 0 && status.pending.length === 0) {
+    lines.push("No migrations yet. Create the first one, then apply it.");
+  } else if (status.pending.length > 0 && status.changed.length === 0) {
+    lines.push("Apply runs the pending ones in this order.");
+  }
+  return lines;
+}
+
+export interface MigrationStatusDetails extends MigrationStatus {
+  readonly database: string;
+  readonly provider: string;
+}
+
+/**
+ * Compares a migrations directory with what the database recorded.
+ *
+ * @param input - Database and directory.
+ * @param signal - Cancellation.
+ * @returns {Promise<ToolResult<MigrationStatusDetails>>} Applied, pending, changed and missing.
+ */
+export async function migrationsStatus(
+  input: DatabaseInput & MigrationsInput,
+  signal?: AbortSignal,
+): Promise<ToolResult<MigrationStatusDetails>> {
+  const { provider, value } = await withDatabase(input.database, (db) =>
+    migrationStatus(db, { ...directoryOption(input), ...(signal ? { signal } : {}) }),
+  );
+  return {
+    content: [
+      {
+        type: "text",
+        text: [
+          `${source(provider)}, migrations in ${shown(value.directory)}:`,
+          ...statusLines(value),
+        ].join("\n"),
+      },
+    ],
+    details: { database: provider.target.label, provider: provider.key, ...value },
+  };
+}
+
+/**
+ * Writes the next migration file.
+ *
+ * @param input - Title, first SQL and directory.
+ * @param input.title - What the migration does.
+ * @param input.sql - What the file starts with.
+ * @returns {Promise<ToolResult<CreatedMigration>>} The new file.
+ */
+export async function migrationsCreate(
+  input: MigrationsInput & { readonly title: string; readonly sql?: string },
+): Promise<ToolResult<CreatedMigration>> {
+  const created = await withMessage(() =>
+    createMigration(input.title, {
+      ...directoryOption(input),
+      ...(input.sql === undefined || input.sql === "" ? {} : { sql: input.sql }),
+    }),
+  );
+  const next =
+    input.sql === undefined || input.sql === ""
+      ? "Write its SQL, then apply it."
+      : "Check it, then apply it.";
+  return {
+    content: [{ type: "text", text: `Created ${shown(created.path)}\n${next}` }],
+    details: created,
+  };
+}
+
+export interface ApplyDetails extends ApplyMigrationsResult {
+  readonly database: string;
+  readonly provider: string;
+}
+
+/**
+ * Applies the pending migrations, oldest first, each in its own transaction.
+ *
+ * @param input - Database, directory and the last file to apply.
+ * @param input.to - Stop after this file.
+ * @param signal - Cancellation.
+ * @returns {Promise<ToolResult<ApplyDetails>>} What ran and what still waits.
+ */
+export async function migrationsApply(
+  input: DatabaseInput & MigrationsInput & { readonly to?: string },
+  signal?: AbortSignal,
+): Promise<ToolResult<ApplyDetails>> {
+  const { provider, value } = await withDatabase(input.database, (db) =>
+    applyMigrations(db, {
+      ...directoryOption(input),
+      ...(input.to === undefined || input.to === "" ? {} : { to: input.to }),
+      ...(signal ? { signal } : {}),
+    }),
+  );
+  const lines = [
+    value.applied.length === 0
+      ? `${source(provider)}: nothing to apply, the database is up to date`
+      : `${source(provider)}: applied ${count(value.applied.length, "migration")}`,
+    ...value.applied.map(appliedLine),
+  ];
+  if (value.pending.length > 0) {
+    lines.push(`Still pending: ${value.pending.map(shown).join(", ")}.`);
   }
   return {
     content: [{ type: "text", text: lines.join("\n") }],

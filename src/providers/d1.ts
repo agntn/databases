@@ -17,7 +17,22 @@ import {
   rowLimit,
   splitName,
 } from "../core/provider.ts";
-import { describeTable, listTables, planTree, type ReadRows } from "../core/sqlite-catalog.ts";
+import {
+  alreadyApplied,
+  checkMigration,
+  createMigrationTable,
+  recordMigrationLiteral,
+  type AppliedMigration,
+  type MigrateOptions,
+  type MigrationScript,
+} from "../core/migration-table.ts";
+import {
+  appliedFrom,
+  describeTable,
+  listTables,
+  planTree,
+  type ReadRows,
+} from "../core/sqlite-catalog.ts";
 import { runChild } from "../core/sqlite-protocol.ts";
 import type {
   Cell,
@@ -384,6 +399,41 @@ export class D1 extends Provider {
       changes: result.meta?.changes ?? 0,
       ...(result.meta?.last_row_id ? { lastInsertId: String(result.meta.last_row_id) } : {}),
     };
+  }
+
+  override async appliedMigrations(options: MigrateOptions = {}): Promise<AppliedMigration[]> {
+    return appliedFrom(this.#reader(options.signal));
+  }
+
+  /**
+   * D1 has no BEGIN but rolls back a failed `/query` batch, as wrangler relies on. The record goes
+   * first as literals, so an unclosed comment in the file can't swallow it.
+   *
+   * @param script - The file's SQL with its name, checksum and time.
+   * @param options - Cancellation.
+   * @returns {Promise<{ applied: boolean }>} `false` when the table already had that name.
+   */
+  override async migrate(
+    script: MigrationScript,
+    options: MigrateOptions = {},
+  ): Promise<{ applied: boolean }> {
+    checkMigration(script);
+    const done = await this.appliedMigrations(options);
+    const recorded = done.find((migration) => migration.name === script.name)?.checksum;
+    if (alreadyApplied(script, recorded)) return { applied: false };
+    const session = await this.#open(options.signal);
+    const sql = [createMigrationTable(), recordMigrationLiteral(script), script.sql].join("\n;\n");
+    try {
+      await this.#request<unknown>(
+        session.credential,
+        `/d1/database/${session.database}/query`,
+        { sql },
+        options.signal,
+      );
+    } finally {
+      schemas.clear();
+    }
+    return { applied: true };
   }
 
   protected quoteTable(name: string): string {

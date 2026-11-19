@@ -68,7 +68,16 @@ describe("databases CLI", () => {
     const unknown = run("nope");
 
     expect(help.stdout).toContain("USAGE databases <command> [OPTIONS]");
-    for (const command of ["providers", "schema", "sample", "query", "explain", "execute", "mcp"]) {
+    for (const command of [
+      "providers",
+      "schema",
+      "sample",
+      "query",
+      "explain",
+      "execute",
+      "migrations",
+      "mcp",
+    ]) {
       expect(help.stdout).toMatch(new RegExp(`^ {2}${command} `, "mu"));
     }
     expect(usage.stdout).toContain("DATABASE");
@@ -126,6 +135,43 @@ describe("databases CLI", () => {
       expect(run("query", writable.path, "SELECT count(*) FROM items").stdout).toContain("[0]");
     } finally {
       writable.dispose();
+    }
+  });
+
+  it("creates, checks and applies migrations under one group", () => {
+    const writable = sqliteFixture();
+    const directory = mkdtempSync(join(tmpdir(), "databases-cli-migrations-"));
+    try {
+      const group = run("migrations");
+      const created = runWith(
+        {},
+        "CREATE TABLE tags (id INTEGER PRIMARY KEY);",
+        "migrations",
+        "create",
+        "add tags",
+        "--sql",
+        "-",
+        "-d",
+        directory,
+      );
+      const pending = run("migrations", "status", writable.path, "-d", directory);
+      const applied = run("migrations", "apply", writable.path, "-d", directory);
+
+      expect(group.code).toBe(1);
+      expect(group.stdout + group.stderr).toMatch(/^ {2}status +Applied and pending migrations$/mu);
+      expect(created).toMatchObject({
+        code: 0,
+        stdout: `Created ${join(directory, "0001_add_tags.sql")}\nCheck it, then apply it.\n`,
+      });
+      expect(pending.stdout).toContain("0 applied, 1 pending\n  0001_add_tags.sql  pending\n");
+      expect(applied).toMatchObject({ code: 0, stderr: "" });
+      expect(applied.stdout).toMatch(/: applied 1 migration\n {2}0001_add_tags\.sql {2}\d{4}-/u);
+      expect(run("migrations", "apply", writable.path, "-d", directory).stdout).toContain(
+        "nothing to apply, the database is up to date",
+      );
+    } finally {
+      writable.dispose();
+      rmSync(directory, { recursive: true, force: true });
     }
   });
 

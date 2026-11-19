@@ -9,8 +9,14 @@
  */
 
 import { existsSync } from "node:fs";
-import { DatabaseSync, type StatementSync } from "node:sqlite";
+import { constants, DatabaseSync, type StatementSync } from "node:sqlite";
 import { DatabasesError } from "./core/errors.ts";
+import {
+  alreadyApplied,
+  createMigrationTable,
+  MIGRATION_TABLE,
+  recordMigration,
+} from "./core/migration-table.ts";
 import { guardReads, prepareOne } from "./core/policy.ts";
 import type { ChildAnswer, ChildJob, ChildResult, ChildStep } from "./core/sqlite-protocol.ts";
 import type { Cell, Column } from "./core/types.ts";
@@ -126,6 +132,85 @@ function runCheck(job: Extract<ChildJob, { kind: "check" }>): ChildResult[] {
 }
 
 /**
+ * Opens a file for writing, with the same settings `execute` gets.
+ *
+ * @param path - The file.
+ * @returns {DatabaseSync} The connection.
+ */
+function openWritable(path: string): DatabaseSync {
+  if (!existsSync(path)) throw new DatabasesError(`No SQLite file at ${path}`, { code: "config" });
+  const db = new DatabaseSync(path, { timeout: 5000, enableForeignKeyConstraints: true });
+  db.enableDefensive(true);
+  return db;
+}
+
+/**
+ * Denies BEGIN, COMMIT and ROLLBACK, which would split a migration from its record.
+ *
+ * @param action - SQLite action code.
+ * @returns {number} `SQLITE_DENY` for transaction control, `SQLITE_OK` for the rest.
+ */
+function denyTransactions(action: number): number {
+  return action === constants.SQLITE_TRANSACTION ? constants.SQLITE_DENY : constants.SQLITE_OK;
+}
+
+/**
+ * Runs the file's SQL with transaction control denied, naming that denial for what it is.
+ *
+ * @param db - Connection inside the migration's transaction.
+ * @param sql - The whole file.
+ */
+function runScript(db: DatabaseSync, sql: string): void {
+  db.setAuthorizer(denyTransactions);
+  try {
+    db.exec(sql);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw /not authorized/iu.test(message)
+      ? new DatabasesError(
+          "Refused: the migration opens or ends a transaction. Each file already runs in one transaction with its record, so drop its BEGIN, COMMIT and ROLLBACK",
+          { code: "refused", cause: error },
+        )
+      : error;
+  } finally {
+    db.setAuthorizer(null);
+  }
+}
+
+/**
+ * Runs one migration and its record in one transaction. A failure rolls both back.
+ *
+ * @param job - The file and the script.
+ * @returns {ChildResult[]} Whether it ran, `false` when the table already had it.
+ */
+function runMigrate(job: Extract<ChildJob, { kind: "migrate" }>): ChildResult[] {
+  const db = openWritable(job.path);
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec(createMigrationTable());
+      const { name, checksum, sql, appliedAt } = job.script;
+      const row = db.prepare(`SELECT checksum FROM ${MIGRATION_TABLE} WHERE name = ?`).get(name);
+      const done = alreadyApplied(
+        job.script,
+        row === undefined ? undefined : String(row["checksum"]),
+      );
+      if (!done) {
+        runScript(db, sql);
+        db.prepare(recordMigration("?")).run(name, checksum, appliedAt);
+      }
+      db.exec("COMMIT");
+      return [{ applied: !done }];
+    } catch (error) {
+      if (db.isTransaction) db.exec("ROLLBACK");
+      throw error;
+    }
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * Turns any failure into an answer the parent can rethrow.
  *
  * @param error - What was thrown.
@@ -149,10 +234,22 @@ function failure(error: unknown): ChildAnswer {
   return { error: { message, code: "query", ...(engineCode ? { engineCode } : {}) } };
 }
 
+/**
+ * Sends a job to the runner of its kind.
+ *
+ * @param job - What the parent wrote.
+ * @returns {ChildResult[]} The results.
+ */
+function run(job: ChildJob): ChildResult[] {
+  if (job.kind === "check") return runCheck(job);
+  if (job.kind === "migrate") return runMigrate(job);
+  return runFile(job);
+}
+
 let answer: ChildAnswer;
 try {
   const job = JSON.parse(await readInput()) as ChildJob;
-  answer = { results: job.kind === "check" ? runCheck(job) : runFile(job) };
+  answer = { results: run(job) };
 } catch (error) {
   answer = failure(error);
 }

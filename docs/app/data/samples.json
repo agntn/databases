@@ -51,6 +51,21 @@
       "name": "databases_execute",
       "title": "Execute Statement",
       "effect": "destructive"
+    },
+    {
+      "name": "databases_migrations_status",
+      "title": "Get Migration Status",
+      "effect": "read"
+    },
+    {
+      "name": "databases_migrations_create",
+      "title": "Create Migration",
+      "effect": "write"
+    },
+    {
+      "name": "databases_migrations_apply",
+      "title": "Apply Migrations",
+      "effect": "destructive"
     }
   ],
   "queries": [

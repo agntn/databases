@@ -42,6 +42,9 @@ describe("databases MCP server", () => {
       "databases_query",
       "databases_explain",
       "databases_execute",
+      "databases_migrations_status",
+      "databases_migrations_create",
+      "databases_migrations_apply",
     ]);
     for (const tool of tools) {
       expect(tool.annotations?.title).toBe(tool.title);
@@ -53,6 +56,13 @@ describe("databases MCP server", () => {
       destructiveHint: false,
     });
     expect(byName.get("databases_execute")?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+    });
+    expect(byName.get("databases_migrations_status")?.annotations).toMatchObject({
+      readOnlyHint: true,
+    });
+    expect(byName.get("databases_migrations_apply")?.annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: true,
     });

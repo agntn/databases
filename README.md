@@ -5,7 +5,7 @@
 [![license](https://npmx.dev/api/registry/badge/license/@agntn/databases)](https://npmx.dev/package/@agntn/databases)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/agntn/databases)
 
-🗄️ Three engines, six tools, zero accidental writes. Your agent gets to look, not to touch.
+🗄️ Three engines, zero accidental writes. Your agent gets to look, and touches only when you say so.
 
 ## Why?
 
@@ -19,6 +19,7 @@ Docs: [databases.agntn.dev](https://databases.agntn.dev).
 - 🔒 **Reads stay reads.** Each engine refuses a write on its own.
 - 🛑 **One statement per call.** A second command makes the whole call fail.
 - ✍️ **Experimental writes are enabled.** `execute` needs no environment switch.
+- 🧬 **Migrations are plain SQL files.** Each one lands whole or not at all, and an edited file stops the deploy.
 - 📏 **Answers fit your context.** Get 50 rows by default, with a maximum of 1000 and a notice when more exist.
 - 🧾 **Values stay in their lanes.** Escaped cell text cannot pretend to be another row.
 - ⏱️ **Queries have a deadline.** Statements stop after 30 seconds.
@@ -88,6 +89,7 @@ The bare `databases` command comes from `pnpm add -g @agntn/databases`, or use `
 | `query <database> <sql>`    | Run one read-only statement (`sql` can be `-` for stdin)       |
 | `explain <database> <sql>`  | Plan of one statement                                          |
 | `execute <database> <sql>`  | Run one statement that may write                               |
+| `migrations <command>`      | Create, check and apply `.sql` migrations                      |
 | `mcp`                       | Run the MCP server over stdio                                  |
 
 Find the options in the [CLI guide](https://databases.agntn.dev/guide/cli).
@@ -109,7 +111,7 @@ console.log(orders.columns.map((column) => `${column.name} ${column.type}`));
 
 `open()` gives you a provider. You can also call `tables()`, `sample()`, `explain()` and `execute()`. Errors are `DatabasesError` instances with a code. The codes are `config`, `auth`, `connection`, `refused`, `query`, `timeout` and `unsupported`.
 
-[Library](https://databases.agntn.dev/guide/library) · [Connections](https://databases.agntn.dev/guide/connections) · [Read-only](https://databases.agntn.dev/guide/read-only)
+[Library](https://databases.agntn.dev/guide/library) · [Migrations](https://databases.agntn.dev/guide/migrations) · [Connections](https://databases.agntn.dev/guide/connections) · [Read-only](https://databases.agntn.dev/guide/read-only)
 
 ## 🗺️ Providers
 
@@ -125,7 +127,7 @@ You can also use a named connection from `DATABASES_<NAME>_URL`. SQLite accepts 
 
 ## 🤖 Agents
 
-Give your agent six tools: `databases_providers`, `databases_schema_get`, `databases_table_sample`, `databases_query`, `databases_explain` and `databases_execute`. Named connections keep passwords out of the agent's transcript. The providers list shows passwords as `***`. The native Pi extension does not ask for confirmation before `databases_execute`.
+Give your agent the tools: `databases_providers`, `databases_schema_get`, `databases_table_sample`, `databases_query`, `databases_explain` and `databases_execute`. Schema changes? `databases_migrations_status`, `databases_migrations_create` and `databases_migrations_apply`. Named connections keep passwords out of the agent's transcript. The providers list shows passwords as `***`. The native Pi extension does not ask for confirmation before `databases_execute`.
 
 ```bash
 pi install npm:@agntn/databases
@@ -158,7 +160,7 @@ import { databasesAiTools } from "@agntn/databases/ai";
 
 ## 🚫 What this does not do
 
-There is no MySQL, migration support, connection pool or session that outlives a call. For files and objects in buckets, use [@agntn/storages](https://github.com/agntn/storages).
+There is no MySQL, connection pool, down migration or session that outlives a call. For files and objects in buckets, use [@agntn/storages](https://github.com/agntn/storages).
 
 ## 🛠️ Development
 

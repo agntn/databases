@@ -17,6 +17,17 @@ import {
   rowLimit,
   splitName,
 } from "../core/provider.ts";
+import {
+  alreadyApplied,
+  checkMigration,
+  createMigrationTable,
+  MIGRATION_TABLE,
+  MIGRATION_TIMEOUT_MS,
+  recordMigration,
+  type AppliedMigration,
+  type MigrateOptions,
+  type MigrationScript,
+} from "../core/migration-table.ts";
 import { scrub, secretsOf } from "../core/reference.ts";
 import type {
   Cell,
@@ -84,6 +95,19 @@ const FOREIGN_KEYS = `SELECT
   ARRAY(SELECT a.attname FROM unnest(c.confkey) WITH ORDINALITY AS u(num, ord)
     JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = u.num ORDER BY u.ord)
 FROM pg_constraint c WHERE c.conrelid = $1::oid AND c.contype = 'f' ORDER BY c.conname`;
+
+/** One lock for every migration run on the database, so two runs take turns. */
+const MIGRATION_LOCK = `SELECT pg_advisory_xact_lock(hashtext('${MIGRATION_TABLE}'))`;
+
+/** Runs the file in PL/pgSQL `EXECUTE`, which refuses any BEGIN, COMMIT or ROLLBACK. */
+const RUN_MIGRATION = `DO $databases$ BEGIN EXECUTE current_setting('databases.migration'); END $databases$`;
+
+const APPLIED = `SELECT name, checksum, applied_at FROM ${MIGRATION_TABLE} ORDER BY name`;
+
+/** The table's schema-qualified name, fixed before a file can move `search_path`. */
+const LEDGER = `SELECT format('%I.%I', n.nspname, c.relname)
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.oid = to_regclass('${MIGRATION_TABLE}')`;
 
 const TYPE_NAMES = `SELECT oid::int, format_type(oid, NULL) FROM pg_type WHERE oid = ANY ($1::oid[])`;
 
@@ -173,6 +197,17 @@ function errorMessage(
  */
 function bind(params: readonly Param[]): postgres.ParameterOrJSON<never>[] {
   return [...params];
+}
+
+/**
+ * Whether Postgres refused a transaction command inside `EXECUTE`.
+ *
+ * @param error - What the driver threw.
+ * @returns {boolean} `true` for that refusal.
+ */
+function isTransactionCommand(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  return error.code === "0A000" && "routine" in error && error.routine === "exec_stmt_dynexecute";
 }
 
 export class Postgres extends Provider {
@@ -400,6 +435,88 @@ export class Postgres extends Provider {
       },
       options.signal,
     );
+  }
+
+  override async appliedMigrations(options: MigrateOptions = {}): Promise<AppliedMigration[]> {
+    const rows = await this.#transaction(
+      true,
+      async (tx) => {
+        const [found] = await this.#rows(tx, "SELECT to_regclass($1) IS NOT NULL", [
+          MIGRATION_TABLE,
+        ]);
+        return found?.[0] === true ? this.#rows(tx, APPLIED) : [];
+      },
+      options.signal,
+    );
+    return rows.map((row) => ({
+      name: String(row[0]),
+      checksum: String(row[1]),
+      appliedAt: String(row[2]),
+    }));
+  }
+
+  /**
+   * Runs the file inside one `EXECUTE`, so transaction control in it fails instead of committing.
+   *
+   * @param script - The file's SQL with its name, checksum and time.
+   * @param options - Cancellation.
+   * @returns {Promise<{ applied: boolean }>} `false` when the table already had that name.
+   */
+  override async migrate(
+    script: MigrationScript,
+    options: MigrateOptions = {},
+  ): Promise<{ applied: boolean }> {
+    checkMigration(script);
+    return this.#transaction(
+      false,
+      async (tx) => {
+        await tx.unsafe(
+          "SELECT set_config('statement_timeout', $1, true)",
+          [String(MIGRATION_TIMEOUT_MS)],
+          EXTENDED,
+        );
+        await tx.unsafe(MIGRATION_LOCK, [], EXTENDED);
+        await tx.unsafe(createMigrationTable(), [], EXTENDED);
+        const table = String((await this.#rows(tx, LEDGER))[0]?.[0]);
+        const [seen] = await this.#rows(tx, `SELECT checksum FROM ${table} WHERE name = $1`, [
+          script.name,
+        ]);
+        if (alreadyApplied(script, seen === undefined ? undefined : String(seen[0]))) {
+          return { applied: false };
+        }
+        await tx.unsafe(
+          "SELECT set_config('databases.migration', $1, true)",
+          [script.sql],
+          EXTENDED,
+        );
+        await this.#runScript(tx, script.name);
+        await tx.unsafe(
+          recordMigration("$", table),
+          [script.name, script.checksum, script.appliedAt],
+          EXTENDED,
+        );
+        return { applied: true };
+      },
+      options.signal,
+    );
+  }
+
+  /**
+   * Runs the stored script, naming a transaction command in it for what it is.
+   *
+   * @param tx - Open transaction holding the script in `databases.migration`.
+   * @param name - The migration, for the message.
+   */
+  async #runScript(tx: Transaction, name: string): Promise<void> {
+    try {
+      await tx.unsafe(RUN_MIGRATION, [], EXTENDED);
+    } catch (error) {
+      if (!isTransactionCommand(error)) throw error;
+      throw new DatabasesError(
+        `Refused: ${name} runs a command a migration can't, such as BEGIN, COMMIT, SAVEPOINT or COPY. Each file already runs in one transaction with its record`,
+        { code: "refused", provider: Postgres.key, engineCode: "0A000", cause: error },
+      );
+    }
   }
 
   /**

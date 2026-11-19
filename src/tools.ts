@@ -214,6 +214,111 @@ export const executeTool = defineTool({
     (await loadOperations()).executeStatement(input, context.signal),
 });
 
+const directory = Type.Optional(
+  Type.String({
+    description:
+      "Folder of the .sql migration files, absolute or relative to the working directory. Default migrations.",
+    maxLength: MAX_NAME_LENGTH,
+  }),
+);
+
+export const migrationsStatusTool = defineTool({
+  name: "databases_migrations_status",
+  title: "Get Migration Status",
+  description:
+    "Compare a folder of .sql migration files with the databases_migrations table of a database: which ran and when, which are pending in the order they would apply, which changed after they ran and which records lost their file. Reads only; a database that never ran one has no table and shows everything pending.",
+  snippet: "Use databases_migrations_status to see which migrations a database still needs.",
+  guidelines: ["Check databases_migrations_status before databases_migrations_apply."],
+  effect: "read",
+  openWorld: true,
+  cli: {
+    command: "migrations status",
+    description: "Applied and pending migrations",
+    positional: ["database"],
+    plain: ["database"],
+    short: { directory: "d" },
+  },
+  input: Type.Object({ database, directory }, { additionalProperties: false }),
+  execute: async (input, context) =>
+    (await loadOperations()).migrationsStatus(input, context.signal),
+});
+
+export const migrationsCreateTool = defineTool({
+  name: "databases_migrations_create",
+  title: "Create Migration",
+  description:
+    "Write the next migration file: the folder's highest number plus one, then the title in lower case with _ between words, such as 0003_add_users.sql. The folder is created when missing and no file is ever overwritten. Touches no database.",
+  snippet: "Use databases_migrations_create to start a schema change as a numbered .sql file.",
+  guidelines: [
+    "Put the whole change in sql; each file runs in one transaction, so leave out BEGIN and COMMIT.",
+    "Change a schema through a new migration, never by editing one that already ran.",
+  ],
+  effect: "write",
+  cli: {
+    command: "migrations create",
+    description: "Write the next numbered migration file",
+    positional: ["title"],
+    stdin: ["sql"],
+    short: { directory: "d" },
+  },
+  input: Type.Object(
+    {
+      title: Type.String({
+        description: "What the migration does, in a few words, such as add users",
+        minLength: 1,
+        maxLength: 200,
+        pattern: "[A-Za-z0-9]",
+      }),
+      sql: Type.Optional(
+        Type.String({
+          description: "SQL the file starts with. Without it the file holds a comment to replace.",
+          maxLength: MAX_SQL_LENGTH,
+        }),
+      ),
+      directory,
+    },
+    { additionalProperties: false },
+  ),
+  execute: async (input) => (await loadOperations()).migrationsCreate(input),
+});
+
+export const migrationsApplyTool = defineTool({
+  name: "databases_migrations_apply",
+  title: "Apply Migrations",
+  description:
+    "Run the pending migration files against a database in name order, each in its own transaction together with its row in databases_migrations, so a file lands whole or not at all. The first failure rolls that file back and stops; the ones before it stay applied. Refuses while an applied file has changed. D1 runs each file as one batch, which it rolls back on failure.",
+  snippet:
+    "Use databases_migrations_apply to bring a database up to date with its migration files.",
+  guidelines: [
+    "Run databases_migrations_status first and apply only when the user asked for the change.",
+    "Pass to for one step at a time on a database other people use.",
+  ],
+  effect: "destructive",
+  openWorld: true,
+  cli: {
+    command: "migrations apply",
+    description: "Run the pending migrations",
+    positional: ["database"],
+    plain: ["database"],
+    short: { directory: "d" },
+  },
+  input: Type.Object(
+    {
+      database,
+      directory,
+      to: Type.Optional(
+        Type.String({
+          description: "Last file to apply, such as 0002_add_users.sql. Default every pending one.",
+          maxLength: 200,
+        }),
+      ),
+    },
+    { additionalProperties: false },
+  ),
+  execute: async (input, context) =>
+    (await loadOperations()).migrationsApply(input, context.signal),
+});
+
 export const databasesTools = [
   providersTool,
   schemaGetTool,
@@ -221,4 +326,7 @@ export const databasesTools = [
   queryTool,
   explainTool,
   executeTool,
+  migrationsStatusTool,
+  migrationsCreateTool,
+  migrationsApplyTool,
 ] as const satisfies readonly ToolDefinition[];

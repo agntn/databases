@@ -75,6 +75,7 @@ if (servesSource(argv)) {
       version: serverInfo.version,
       description: serverInfo.description,
       tools: databasesTools,
+      groups: { migrations: { description: "Create, check and apply .sql migrations" } },
       mcp: true,
       // A refused or failed statement is an answer, so it prints as one line, not a stack.
       expected: (error) => error instanceof DatabasesError,
