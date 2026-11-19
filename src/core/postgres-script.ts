@@ -12,12 +12,17 @@ const DOLLAR = /\$(?:[A-Za-z_]\w*)?\$/uy;
 
 const LINE_END = /[\n\r]/gu;
 
+/** What `CREATE [OR REPLACE]` makes when a `BEGIN ATOMIC` body may follow. */
+const ROUTINE = new Set(["function", "procedure"]);
+
 /** Reads a Postgres script one token at a time. */
 class ScriptReader {
   readonly #sql: string;
   #at = 0;
   /** Lower-case words of the statement read so far, the first two only. */
   #words: string[] = [];
+  /** The statement creates a function or procedure, the only place `BEGIN ATOMIC` opens a body. */
+  #routine = false;
   /** Open `BEGIN ATOMIC` and `CASE`, where `;` ends nothing. */
   #depth = 0;
   #last = "";
@@ -38,6 +43,7 @@ class ScriptReader {
         const found = this.#verdict();
         if (found !== undefined) return found;
         this.#words = [];
+        this.#routine = false;
         this.#at += 1;
       } else if (!this.#skipQuoted(char)) this.#token(char);
     }
@@ -67,7 +73,8 @@ class ScriptReader {
    * @param word - Lower case, or `""` for punctuation and quoted text.
    */
   #note(word: string): void {
-    if (word === "atomic" && this.#last === "begin" && this.#words[0] !== "begin") this.#depth += 1;
+    if (this.#words[0] === "create" && ROUTINE.has(word)) this.#routine = true;
+    if (word === "atomic" && this.#last === "begin" && this.#routine) this.#depth += 1;
     if (this.#depth > 0 && word === "case") this.#depth += 1;
     if (this.#depth > 0 && word === "end") this.#depth -= 1;
     if (this.#words.length < 2) this.#words.push(word);

@@ -377,6 +377,11 @@ describe("transactionControl", () => {
     ['SELECT "a;""b" FROM t; COMMIT', "commit"],
     ["SELECT $1, a$b FROM t; END;", "end"],
     ["CREATE TABLE a (x int); -- comment\rCOMMIT;\rCREATE TABLE b (x int);", "commit"],
+    ["CREATE TABLE t (begin int); SELECT begin atomic FROM t; COMMIT; SELECT 1/0;", "commit"],
+    [
+      "CREATE OR REPLACE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; END; COMMIT",
+      "commit",
+    ],
     [
       "CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT CASE WHEN a > 0 THEN 1 ELSE 0 END; SELECT a; END; COMMIT;",
       "commit",
