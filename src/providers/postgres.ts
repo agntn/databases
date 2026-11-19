@@ -28,7 +28,6 @@ import {
   type MigrateOptions,
   type MigrationScript,
 } from "../core/migration-table.ts";
-import { transactionControl } from "../core/postgres-script.ts";
 import { scrub, secretsOf } from "../core/reference.ts";
 import type {
   Cell,
@@ -100,10 +99,8 @@ FROM pg_constraint c WHERE c.conrelid = $1::oid AND c.contype = 'f' ORDER BY c.c
 /** One lock for every migration run on the database, so two runs take turns. */
 const MIGRATION_LOCK = `SELECT pg_advisory_xact_lock(hashtext('${MIGRATION_TABLE}'))`;
 
-/** The transaction's id, assigning one if it had none, so a later check sees the same one. */
-const TRANSACTION_ID = "SELECT pg_current_xact_id()::text";
-
-const SAME_TRANSACTION = "SELECT pg_current_xact_id_if_assigned()::text";
+/** Runs the file in PL/pgSQL `EXECUTE`, which refuses any BEGIN, COMMIT or ROLLBACK. */
+const RUN_MIGRATION = `DO $databases$ BEGIN EXECUTE current_setting('databases.migration'); END $databases$`;
 
 const APPLIED = `SELECT name, checksum, applied_at FROM ${MIGRATION_TABLE} ORDER BY name`;
 
@@ -203,16 +200,14 @@ function bind(params: readonly Param[]): postgres.ParameterOrJSON<never>[] {
 }
 
 /**
- * The failure for a migration that ended the transaction it was given.
+ * Whether Postgres refused a transaction command inside `EXECUTE`.
  *
- * @param name - The migration.
- * @returns {DatabasesError} The error.
+ * @param error - What the driver threw.
+ * @returns {boolean} `true` for that refusal.
  */
-function ownTransaction(name: string): DatabasesError {
-  return new DatabasesError(
-    `${name} ended its transaction while it ran, so what came before that stays and nothing is recorded. Check the database, then drop the transaction control from the file`,
-    { code: "query", provider: "postgres" },
-  );
+function isTransactionCommand(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  return error.code === "0A000" && "routine" in error && error.routine === "exec_stmt_dynexecute";
 }
 
 export class Postgres extends Provider {
@@ -461,7 +456,7 @@ export class Postgres extends Provider {
   }
 
   /**
-   * Sends the file over the simple protocol; the id check catches a hidden COMMIT.
+   * Runs the file inside one `EXECUTE`, so transaction control in it fails instead of committing.
    *
    * @param script - The file's SQL with its name, checksum and time.
    * @param options - Cancellation.
@@ -472,13 +467,6 @@ export class Postgres extends Provider {
     options: MigrateOptions = {},
   ): Promise<{ applied: boolean }> {
     checkMigration(script);
-    const control = transactionControl(script.sql);
-    if (control !== undefined) {
-      throw new DatabasesError(
-        `Refused: ${script.name} runs ${control.toUpperCase()}. Each file already runs in one transaction with its record, so drop its BEGIN, COMMIT and ROLLBACK`,
-        { code: "refused", provider: Postgres.key },
-      );
-    }
     return this.#transaction(
       false,
       async (tx) => {
@@ -496,10 +484,12 @@ export class Postgres extends Provider {
         if (alreadyApplied(script, seen === undefined ? undefined : String(seen[0]))) {
           return { applied: false };
         }
-        const before = (await this.#rows(tx, TRANSACTION_ID))[0]?.[0];
-        await tx.unsafe(script.sql, [], { simple: true });
-        const after = (await this.#rows(tx, SAME_TRANSACTION))[0]?.[0];
-        if (after !== before) throw ownTransaction(script.name);
+        await tx.unsafe(
+          "SELECT set_config('databases.migration', $1, true)",
+          [script.sql],
+          EXTENDED,
+        );
+        await this.#runScript(tx, script.name);
         await tx.unsafe(
           recordMigration("$", table),
           [script.name, script.checksum, script.appliedAt],
@@ -509,6 +499,24 @@ export class Postgres extends Provider {
       },
       options.signal,
     );
+  }
+
+  /**
+   * Runs the stored script, naming a transaction command in it for what it is.
+   *
+   * @param tx - Open transaction holding the script in `databases.migration`.
+   * @param name - The migration, for the message.
+   */
+  async #runScript(tx: Transaction, name: string): Promise<void> {
+    try {
+      await tx.unsafe(RUN_MIGRATION, [], EXTENDED);
+    } catch (error) {
+      if (!isTransactionCommand(error)) throw error;
+      throw new DatabasesError(
+        `Refused: ${name} runs a command a migration can't, such as BEGIN, COMMIT, SAVEPOINT or COPY. Each file already runs in one transaction with its record`,
+        { code: "refused", provider: Postgres.key, engineCode: "0A000", cause: error },
+      );
+    }
   }
 
   /**

@@ -7,7 +7,6 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vite-
 import { DatabasesError } from "../src/core/errors.ts";
 import { checkMigration, type MigrationScript } from "../src/core/migration-table.ts";
 import { Provider } from "../src/core/provider.ts";
-import { transactionControl } from "../src/core/postgres-script.ts";
 import { open } from "../src/core/registry.ts";
 import {
   applyMigrations,
@@ -366,61 +365,6 @@ describe("checkMigration", () => {
   });
 });
 
-describe("transactionControl", () => {
-  it.each([
-    ["CREATE TABLE a (x int); COMMIT;", "commit"],
-    ["begin; create table a (x int);", "begin"],
-    ["CREATE TABLE a (x int)\n;\n  -- c\n End", "end"],
-    ["start transaction;", "start transaction"],
-    ["ROLLBACK", "rollback"],
-    ["abort;", "abort"],
-    ["INSERT INTO t VALUES (E'\\''); COMMIT", "commit"],
-    ['SELECT "a;""b" FROM t; COMMIT', "commit"],
-    ["SELECT $1, a$b FROM t; END;", "end"],
-    ["CREATE TABLE a (x int); -- comment\rCOMMIT;\rCREATE TABLE b (x int);", "commit"],
-    ["CREATE TABLE t (begin int); SELECT begin atomic FROM t; COMMIT; SELECT 1/0;", "commit"],
-    ["CREATE VIEW function AS SELECT begin atomic FROM t; COMMIT; SELECT 1/0;", "commit"],
-    [
-      "CREATE OR REPLACE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; END; COMMIT",
-      "commit",
-    ],
-    [
-      "CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT CASE WHEN a > 0 THEN 1 ELSE 0 END; SELECT a; END; COMMIT;",
-      "commit",
-    ],
-  ])("finds the control in %j", (sql, control) => {
-    expect(transactionControl(sql)).toBe(control);
-  });
-
-  it.each([
-    "CREATE TABLE a (x int);",
-    "SAVEPOINT s; ROLLBACK TO s; RELEASE s;",
-    "rollback to savepoint s",
-    "CREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN COMMIT; END; $$;",
-    "CREATE FUNCTION f() RETURNS int AS $body$ ; commit; $body$ LANGUAGE sql; SELECT 1",
-    "INSERT INTO t VALUES ('; COMMIT; '), (E'\\'; COMMIT; '), ('it''s');",
-    "/* a /* nested; */ COMMIT; */ SELECT 1",
-    "SELECT 1; -- a comment that hides\nnothing",
-    "CREATE PROCEDURE p() LANGUAGE sql BEGIN ATOMIC INSERT INTO t VALUES (1); END",
-    'CREATE TABLE "end" (x int);',
-    "DO $$ BEGIN COMMIT; END $$;",
-  ])("lets %j through", (sql) => {
-    expect(transactionControl(sql)).toBeUndefined();
-  });
-
-  it("reads hostile input in linear time", () => {
-    const started = performance.now();
-    for (const sql of [
-      "'".concat("x".repeat(2_000_000)),
-      "/*".repeat(200_000),
-      "$a$".repeat(300_000),
-    ]) {
-      transactionControl(sql);
-    }
-    expect(performance.now() - started).toBeLessThan(2000);
-  });
-});
-
 describe("the migration tools", () => {
   it("create, check and apply through the executors the agents call", async () => {
     const { db, dir } = project();
@@ -628,19 +572,49 @@ describe.skipIf(!postgresUrl)("migrations on Postgres", () => {
     expect(status.applied.map((applied) => applied.name)).toEqual(["0001_users.sql"]);
   });
 
-  it("refuses a COMMIT before sending, and catches one a procedure hides", async () => {
+  it.each([
+    "CREATE TABLE a (x int); COMMIT; CREATE TABLE b (x int);",
+    "begin; CREATE TABLE a (x int);",
+    "CREATE TABLE a (x int); -- comment\rCOMMIT;\rCREATE TABLE b (x int);",
+    "CREATE TABLE t (begin int); SELECT begin atomic FROM t; COMMIT; SELECT 1/0;",
+    "CREATE TABLE t (begin int); CREATE VIEW function AS SELECT begin atomic FROM t; COMMIT; SELECT 1/0;",
+    "CREATE TABLE t (begin int); CREATE FUNCTION f() RETURNS int LANGUAGE sql RETURN (SELECT begin atomic FROM t); COMMIT; SELECT 1/0;",
+    "SAVEPOINT s; CREATE TABLE a (x int); RELEASE s;",
+  ])("refuses transaction control in %j and leaves nothing behind", async (sql) => {
     const { dir } = project();
-    file(dir, "0001_commit.sql", "CREATE TABLE a (x int); COMMIT; CREATE TABLE b (x int);");
-    const provider = await open(target());
+    file(dir, "0001_commit.sql", sql);
 
-    expect((await failure(applyMigrations(provider, { directory: dir }))).code).toBe("refused");
+    expect((await failure(applyMigrations(await open(target()), { directory: dir }))).code).toBe(
+      "refused",
+    );
+    expect(await tables()).toEqual([]);
+  });
+
+  it("refuses a COMMIT that a procedure hides", async () => {
+    const { dir } = project();
     file(
       dir,
-      "0001_commit.sql",
-      "CREATE PROCEDURE p() LANGUAGE plpgsql AS $$ BEGIN COMMIT; END $$;\nCALL p();",
+      "0001_call.sql",
+      "CREATE TABLE a (x int);\nCREATE PROCEDURE p() LANGUAGE plpgsql AS $$ BEGIN COMMIT; END $$;\nCALL p();",
     );
-    expect((await failure(applyMigrations(provider, { directory: dir }))).code).toBe("query");
+
+    expect((await failure(applyMigrations(await open(target()), { directory: dir }))).code).toBe(
+      "query",
+    );
     expect(await tables()).toEqual([]);
+  });
+
+  it("runs routine bodies, dollar quotes and comments as written", async () => {
+    const { dir } = project();
+    file(
+      dir,
+      "0001_body.sql",
+      "-- users\rCREATE TABLE users (id int, note text DEFAULT 'it''s; COMMIT');\nCREATE FUNCTION pick(a int) RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT CASE WHEN a > 0 THEN 1 ELSE 0 END; END;\nDO $x$ BEGIN RAISE NOTICE 'COMMIT;'; END $x$;\n/* a /* nested */ COMMIT; */ SELECT pick(1);",
+    );
+    const provider = await open(target());
+
+    expect((await applyMigrations(provider, { directory: dir })).applied).toHaveLength(1);
+    expect(await tables()).toEqual(["databases_migrations", "users"]);
   });
 
   it("records into the table it created when a file moves search_path", async () => {
