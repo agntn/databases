@@ -74,11 +74,20 @@ class ScriptReader {
    */
   #note(word: string): void {
     if (this.#words[0] === "create" && ROUTINE.has(word)) this.#routine = true;
-    if (word === "atomic" && this.#last === "begin" && this.#routine) this.#depth += 1;
-    if (this.#depth > 0 && word === "case") this.#depth += 1;
-    if (this.#depth > 0 && word === "end") this.#depth -= 1;
+    this.#nest(word);
     if (this.#words.length < 2) this.#words.push(word);
     this.#last = word;
+  }
+
+  /**
+   * Opens or closes a routine body or a `CASE` inside one.
+   *
+   * @param word - Lower case.
+   */
+  #nest(word: string): void {
+    if (word === "atomic" && this.#last === "begin" && this.#routine) this.#depth += 1;
+    else if (this.#depth > 0 && word === "case") this.#depth += 1;
+    else if (this.#depth > 0 && word === "end") this.#depth -= 1;
   }
 
   /**
