@@ -25,7 +25,7 @@ catalog:
 # The library's versions, and docs/ next to them.
 catalogs:
   deps:
-    "@agntn/credentials": 0.1.0
+    "@agntn/credentials": 0.1.1
     "@agntn/hashes": 0.7.3
     "@agntn/tools": 0.3.1
     "@modelcontextprotocol/sdk": 1.32.1
