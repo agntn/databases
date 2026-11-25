@@ -328,6 +328,17 @@ describe("migrations on SQLite", () => {
     expect(failed.message).toContain("0001_a.sql was applied with different text");
   });
 
+  it("keeps the checksums databases already recorded", async () => {
+    const { dir } = project();
+    file(dir, "0001_a.sql", "CREATE TABLE a (x);");
+    file(dir, "0002_cafe.sql", "CREATE TABLE café (naïve TEXT);\n");
+
+    expect((await readMigrations({ directory: dir })).map((one) => one.checksum)).toEqual([
+      "5d4dfde3b9ddf0a46b24120bb95e8ec12aaf6782f4c94912c492152df44fac27",
+      "4057b0e12e51c77532d185b1921a5bab045d8dc574f4d5cd96e8010d478546ec",
+    ]);
+  });
+
   it("treats a missing folder as no migrations", async () => {
     const { db, dir } = project();
 
