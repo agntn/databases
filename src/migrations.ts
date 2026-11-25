@@ -1,5 +1,6 @@
 /** Migrations as numbered `.sql` files: which to run and in what order. The provider runs each. */
 
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { DatabasesError } from "./core/errors.ts";
@@ -90,14 +91,13 @@ function directoryOf(directory: string | undefined): string {
 }
 
 /**
- * Hex SHA-256 of a file's text, loaded on first use.
+ * Hex SHA-256 of a file's text, straight from Node.
  *
  * @param text - The file.
- * @returns {Promise<string>} 64 lowercase hex digits.
+ * @returns {string} 64 lowercase hex digits.
  */
-async function checksumOf(text: string): Promise<string> {
-  const { sha256 } = await import("@agntn/hashes/sha2");
-  return sha256(new TextEncoder().encode(text)).toHex();
+function checksumOf(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
 }
 
 /**
@@ -190,7 +190,7 @@ export async function readMigrations(
       );
     }
     const sql = await readSql(path);
-    files.push({ name, path, checksum: await checksumOf(sql), sql });
+    files.push({ name, path, checksum: checksumOf(sql), sql });
   }
   return files;
 }
