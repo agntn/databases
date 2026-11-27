@@ -6,7 +6,7 @@ import { tokens } from "../../utils/tokens";
 const { copied, copy } = useCopied();
 
 const INSTALL = "pnpm add @agntn/databases";
-/** `>=26` in the root package.json, read as a sentence. */
+/** `>=26.1` in the root package.json, read as a sentence. */
 const NODE = `Node.js ${rootPackage.engines.node.replace(/^>=\s*/u, "")} or newer`;
 
 /** The second recorded query, so the comments in the snippet are what the call returned. */

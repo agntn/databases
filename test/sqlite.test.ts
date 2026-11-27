@@ -74,6 +74,14 @@ describe("the sqlite provider", () => {
     expect(result).toMatchObject({ more: false, cut: true });
   });
 
+  /** Node 26.0.0 stopped TEXT at the first NUL. */
+  it("keeps a NUL inside TEXT", async () => {
+    const result = await db.query(
+      "SELECT 'a' || char(0) || 'b', length(CAST('a' || char(0) || 'b' AS BLOB))",
+    );
+    expect(result.rows).toEqual([["a\u0000b", 3]]);
+  });
+
   it("stops at the limit and says more rows exist", async () => {
     const result = await db.query("SELECT id FROM items ORDER BY id", { limit: 2 });
     expect(result.rows).toEqual([[1], [2]]);
