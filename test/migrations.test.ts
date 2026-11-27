@@ -377,6 +377,18 @@ describe("checkMigration", () => {
       checkMigration({ ...good, sql: "-- users\rCREATE TABLE users (id int);" }),
     ).not.toThrow();
   });
+
+  it("takes a script behind a block comment with dashes in it", () => {
+    expect(() =>
+      checkMigration({ ...good, sql: "/* -- add tags */ CREATE TABLE tags (a);" }),
+    ).not.toThrow();
+  });
+
+  it("refuses a script whose only statement sits inside a block comment", () => {
+    expect(() =>
+      checkMigration({ ...good, sql: "-- todo\n/* CREATE TABLE tags (a); -- later */" }),
+    ).toThrow("0001_a.sql has no SQL yet, only comments");
+  });
 });
 
 describe("the migration tools", () => {

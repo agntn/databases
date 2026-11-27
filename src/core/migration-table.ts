@@ -113,19 +113,13 @@ export function recordMigrationLiteral(script: Readonly<MigrationScript>): strin
 }
 
 /**
- * Whether a script holds anything but comments and whitespace.
+ * Whether a script holds anything but comments, whichever comment opens first winning.
  *
  * @param sql - The script.
  * @returns {boolean} `true` when there is SQL to run.
  */
 export function hasStatements(sql: string): boolean {
-  return (
-    sql
-      .replaceAll(/--[^\n\r]*/gu, "")
-      .replaceAll(/\/\*[\s\S]*?(?:\*\/|$)/gu, "")
-      .replaceAll(";", "")
-      .trim() !== ""
-  );
+  return sql.replaceAll(/--[^\n\r]*|\/\*[\s\S]*?(?:\*\/|$)|;/gu, "").trim() !== "";
 }
 
 /**
