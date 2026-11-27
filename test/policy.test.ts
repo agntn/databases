@@ -96,7 +96,13 @@ describe("the SQLite read guard", () => {
     expect(verdict("   ")).toBe("query");
   });
 
-  it.each(["", "   ", "-- only a comment", "/* c */ ;", " ; ; "])(
+  it("reads a block comment with dashes inside as a comment", () => {
+    expect(verdict("/* -- c */ SELECT * FROM t")).toBe("ok");
+    expect(verdict("/* -- c */ VACUUM")).toBe("refused");
+    expect(verdict("SELECT 1; /* -- c */ DELETE FROM t")).toBe("refused");
+  });
+
+  it.each(["", "   ", "-- only a comment", "/* c */ ;", " ; ; ", "/* -- c */"])(
     "has no statement to run in %j",
     (sql) => {
       expect(() => prepareOne(db, sql, "read")).toThrow("No statement to run");

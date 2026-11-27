@@ -203,8 +203,6 @@ function firstWord(sql: string): string {
  * @returns {string} The text without `--` and `/* *\/` comments and bare semicolons.
  */
 function stripComments(text: string): string {
-  return text
-    .replaceAll(/--[^\n]*/gu, " ")
-    .replaceAll(/\/\*[\s\S]*?(?:\*\/|$)/gu, " ")
-    .replaceAll(";", " ");
+  /* One pass, so whichever comment opens first wins, as in `/* -- *\/ SELECT 1`. */
+  return text.replaceAll(/--[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|;/gu, " ");
 }
