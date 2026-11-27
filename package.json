@@ -1,6 +1,6 @@
 {
   "name": "@agntn/databases",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Schema, read-only queries and query plans for SQLite, Postgres and Cloudflare D1, through one interface for humans and agents.",
   "keywords": [
     "agents",
