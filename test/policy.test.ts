@@ -96,6 +96,20 @@ describe("the SQLite read guard", () => {
     expect(verdict("   ")).toBe("query");
   });
 
+  it("reads a block comment with dashes inside as a comment", () => {
+    expect(verdict("/* -- c */ SELECT * FROM t")).toBe("ok");
+    expect(verdict("/* -- c */ VACUUM")).toBe("refused");
+    expect(verdict("SELECT 1; /* -- c */ DELETE FROM t")).toBe("refused");
+  });
+
+  it.each(["", "   ", "-- only a comment", "/* c */ ;", " ; ; ", "/* -- c */"])(
+    "has no statement to run in %j",
+    (sql) => {
+      expect(() => prepareOne(db, sql, "read")).toThrow("No statement to run");
+      expect(() => prepareOne(db, sql, "write")).toThrow("No statement to run");
+    },
+  );
+
   it("leaves writes alone in write mode but still takes one statement", () => {
     const writer = new DatabaseSync(":memory:");
     writer.exec("CREATE TABLE t (a)");

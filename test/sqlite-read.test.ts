@@ -65,6 +65,14 @@ describe.each(hosts)("read, $host", ({ child }) => {
     expect(error).toMatchObject({ code: "query", message: "integer overflow" });
   });
 
+  it("has no statement to run in a lone comment", async () => {
+    host();
+    const error = await sqlite
+      .read(path, { sql: "-- only a comment" })
+      .catch((error: unknown) => error);
+    expect(error).toMatchObject({ code: "query", message: "No statement to run" });
+  });
+
   it("keeps every value whole", async () => {
     host();
     const { columns, rows, more } = await sqlite.read(path, {
