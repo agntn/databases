@@ -9,7 +9,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { constants, DatabaseSync, type StatementSync } from "node:sqlite";
+import { constants, DatabaseSync } from "node:sqlite";
 import { DatabasesError } from "./core/errors.ts";
 import {
   alreadyApplied,
@@ -19,7 +19,9 @@ import {
 } from "./core/migration-table.ts";
 import { guardReads, prepareOne } from "./core/policy.ts";
 import type { ChildAnswer, ChildJob, ChildResult, ChildStep } from "./core/sqlite-protocol.ts";
-import type { Cell, Column } from "./core/types.ts";
+import { columnsOf, readRaw } from "./core/sqlite-raw.ts";
+import { toWire } from "./core/sqlite-wire.ts";
+import type { Cell } from "./core/types.ts";
 import { fitRows, toCell, type CellBudget } from "./core/values.ts";
 
 /**
@@ -31,19 +33,6 @@ async function readInput(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
   return Buffer.concat(chunks).toString("utf8");
-}
-
-/**
- * Column names and declared types of a prepared statement.
- *
- * @param statement - Prepared statement.
- * @returns {Column[]} One entry per result column.
- */
-function columnsOf(statement: StatementSync): Column[] {
-  return statement.columns().map((column) => ({
-    name: column.name,
-    ...(column.type ? { type: column.type.toLowerCase() } : {}),
-  }));
 }
 
 /**
@@ -235,12 +224,24 @@ function failure(error: unknown): ChildAnswer {
 }
 
 /**
+ * Reads every value whole. The parent owns the deadline and kills this process at it.
+ *
+ * @param job - The file, the statement and the limit.
+ * @returns {Promise<ChildResult[]>} The rows, tagged for JSON.
+ */
+async function runRead(job: Extract<ChildJob, { kind: "read" }>): Promise<ChildResult[]> {
+  const { columns, rows, more } = await readRaw(job, () => Promise.resolve());
+  return [{ wire: { columns, rows: rows.map((row) => row.map((value) => toWire(value))), more } }];
+}
+
+/**
  * Sends a job to the runner of its kind.
  *
  * @param job - What the parent wrote.
- * @returns {ChildResult[]} The results.
+ * @returns {Promise<ChildResult[]>} The results.
  */
-function run(job: ChildJob): ChildResult[] {
+async function run(job: ChildJob): Promise<ChildResult[]> {
+  if (job.kind === "read") return runRead(job);
   if (job.kind === "check") return runCheck(job);
   if (job.kind === "migrate") return runMigrate(job);
   return runFile(job);
@@ -249,7 +250,7 @@ function run(job: ChildJob): ChildResult[] {
 let answer: ChildAnswer;
 try {
   const job = JSON.parse(await readInput()) as ChildJob;
-  answer = { results: run(job) };
+  answer = { results: await run(job) };
 } catch (error) {
   answer = failure(error);
 }

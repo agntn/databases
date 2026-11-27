@@ -111,6 +111,8 @@ console.log(orders.columns.map((column) => `${column.name} ${column.type}`));
 
 `open()` gives you a provider. You can also call `tables()`, `sample()`, `explain()` and `execute()`. Errors are `DatabasesError` instances with a code. The codes are `config`, `auth`, `connection`, `refused`, `query`, `timeout` and `unsupported`.
 
+Import `read` from `@agntn/databases/sqlite` to read SQLite rows with whole values. It returns `columns`, `rows`, and `more`.
+
 [Library](https://databases.agntn.dev/guide/library) · [Migrations](https://databases.agntn.dev/guide/migrations) · [Connections](https://databases.agntn.dev/guide/connections) · [Read-only](https://databases.agntn.dev/guide/read-only)
 
 ## 🗺️ Providers

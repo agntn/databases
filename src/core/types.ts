@@ -117,3 +117,24 @@ export interface SampleOptions {
   readonly limit?: number;
   readonly signal?: AbortSignal;
 }
+
+/** A SQLite value read whole. Integers past 2^53 stay exact as bigints. */
+export type SqliteValue = string | number | bigint | Uint8Array | null;
+
+export interface ReadOptions {
+  /** One read statement in SQLite's dialect. */
+  readonly sql: string;
+  readonly params?: readonly Param[];
+  /** Most rows to read. Without it, every row. */
+  readonly limit?: number;
+  /** Stop after this many milliseconds. Without it, no deadline. */
+  readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
+}
+
+export interface ReadResult {
+  readonly columns: readonly Column[];
+  readonly rows: readonly (readonly SqliteValue[])[];
+  /** The statement had rows past `limit`; they were not read. */
+  readonly more: boolean;
+}
