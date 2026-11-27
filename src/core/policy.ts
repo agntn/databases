@@ -124,9 +124,13 @@ const DENIED = /not authorized|prohibited/iu;
  * @param sql - Statement text.
  * @param mode - `read` names a denied action as a write; `write` reports the engine's error.
  * @returns {StatementSync} The prepared statement.
- * @throws {DatabasesError} `refused` for a write in read mode or a second statement, `query` for SQL the engine rejects.
+ * @throws {DatabasesError} `refused` for a write in read mode or a second statement, `query` for blank SQL or SQL the engine rejects.
  */
 export function prepareOne(db: DatabaseSync, sql: string, mode: "read" | "write"): StatementSync {
+  /* Node 26.1 prepares blank SQL into an already finalized statement instead of throwing. */
+  if (stripComments(sql).trim() === "") {
+    throw new DatabasesError("No statement to run", { code: "query" });
+  }
   /*
    * VACUUM asks the authorizer only when it runs, not when it is prepared, and a D1 statement is
    * only prepared here. VACUUM can only open a statement, so its first word decides.
@@ -180,7 +184,6 @@ function assertSingle(statement: StatementSync, sql: string): void {
       { code: "refused" },
     );
   }
-  if (first.trim() === "") throw new DatabasesError("No statement to run", { code: "query" });
 }
 
 /**

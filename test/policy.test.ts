@@ -96,6 +96,14 @@ describe("the SQLite read guard", () => {
     expect(verdict("   ")).toBe("query");
   });
 
+  it.each(["", "   ", "-- only a comment", "/* c */ ;", " ; ; "])(
+    "has no statement to run in %j",
+    (sql) => {
+      expect(() => prepareOne(db, sql, "read")).toThrow("No statement to run");
+      expect(() => prepareOne(db, sql, "write")).toThrow("No statement to run");
+    },
+  );
+
   it("leaves writes alone in write mode but still takes one statement", () => {
     const writer = new DatabaseSync(":memory:");
     writer.exec("CREATE TABLE t (a)");
