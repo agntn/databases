@@ -277,6 +277,44 @@ const mayHaveRun = {
   ],
 };
 
+/** Antigravity's opening: a 2026 discover, a bare notification, then a 2026 `tools/list`. */
+const antigravityOpening = (() => {
+  const meta = {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientInfo": { name: "databases-test", version: "1.0.0" },
+    "io.modelcontextprotocol/clientCapabilities": { elicitation: { form: {} } },
+  };
+  return [
+    { jsonrpc: "2.0", id: 1, method: "server/discover", params: { _meta: meta } },
+    { jsonrpc: "2.0", method: "notifications/roots/list_changed", params: {} },
+    { jsonrpc: "2.0", id: 2, method: "tools/list", params: { _meta: meta } },
+  ]
+    .map((message) => `${JSON.stringify(message)}\n`)
+    .join("");
+})();
+
+/**
+ * Plays Antigravity's opening against the built bin.
+ * @param extraEnv - Picks the bundle with `DATABASES_DIST=1`.
+ * @returns {Record<string, unknown> | undefined} The `result` of the answer with `id` 2.
+ */
+function antigravityToolsList(
+  extraEnv: Readonly<Record<string, string>>,
+): Record<string, unknown> | undefined {
+  const { stdout } = spawnSync(process.execPath, [join(root, "dist/cli.mjs"), "mcp"], {
+    encoding: "utf8",
+    env: { ...env, ...extraEnv },
+    input: antigravityOpening,
+    timeout: 20_000,
+  });
+  for (const line of stdout.split("\n")) {
+    if (line === "") continue;
+    const answer = JSON.parse(line) as { id?: unknown; result?: Record<string, unknown> };
+    if (answer.id === 2) return answer.result;
+  }
+  return undefined;
+}
+
 /** Starts `mcp` from the built bin of a checkout copy and connects a client to it. */
 async function checkoutServer(
   patch: Readonly<Record<string, (source: string) => string>> = {},
@@ -467,6 +505,13 @@ describe.skipIf(!existsSync(join(root, "dist/cli.mjs")))("databases mcp from the
       await client.close();
       rmSync(checkout, { recursive: true, force: true });
     }
+  });
+
+  it.each<{ from: string; extraEnv: Readonly<Record<string, string>> }>([
+    { from: "source", extraEnv: {} },
+    { from: "bundle", extraEnv: { DATABASES_DIST: "1" } },
+  ])("keeps Antigravity on 2026 past a bare notification, from the $from", ({ extraEnv }) => {
+    expect(antigravityToolsList(extraEnv)).toMatchObject({ resultType: "complete" });
   });
 
   it("lets progress through while it watches src/", async () => {
