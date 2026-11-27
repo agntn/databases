@@ -72,8 +72,9 @@ export async function readRaw(
   job: Readonly<RawRead>,
   checkpoint: () => Promise<void>,
 ): Promise<ReadResult> {
-  const db = openRead(job.path);
+  let db: DatabaseSync | undefined;
   try {
+    db = openRead(job.path);
     const statement = prepareOne(db, job.sql, "read");
     statement.setReadBigInts(true);
     statement.setReturnArrays(true);
@@ -89,12 +90,11 @@ export async function readRaw(
       rows.push(row.map((value) => exact(value)));
       if (rows.length % CHECK_EVERY === 0) await checkpoint();
     }
-    await checkpoint();
     return { columns: columnsOf(statement), rows, more };
   } catch (error) {
     throw engineError(error);
   } finally {
-    db.close();
+    db?.close();
   }
 }
 

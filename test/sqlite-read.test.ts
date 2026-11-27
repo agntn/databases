@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFile, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -104,6 +104,28 @@ describe.each(hosts)("read, $host", ({ child }) => {
     expect(readDirect(path, "SELECT count(*) AS n FROM part")).toEqual([{ n: 3000 }]);
   });
 
+  it("names a path SQLite can't open as a query error", async () => {
+    host();
+    const folder = join(directory, "folder.db");
+    mkdirSync(folder, { recursive: true });
+    expect(await failure(sqlite.read(folder, { sql: "SELECT 1" }))).toBe("query");
+  });
+
+  it("sends every row of an answer larger than one string can hold", async () => {
+    host();
+    const big = join(directory, "big.db");
+    const db = new DatabaseSync(big);
+    db.exec("CREATE TABLE t (a TEXT)");
+    const insert = db.prepare("INSERT INTO t VALUES (?)");
+    const mib = "x".repeat(1 << 20);
+    for (let row = 0; row < 600; row += 1) insert.run(mib);
+    db.close();
+    const { rows } = await sqlite.read(big, { sql: "SELECT a FROM t" });
+    expect(rows).toHaveLength(600);
+    expect(rows.every((row) => row[0] === mib)).toBe(true);
+    rmSync(big);
+  });
+
   it("refuses a file that isn't there instead of creating it", async () => {
     host();
     const missing = join(directory, "none.db");
@@ -134,6 +156,37 @@ describe.each(hosts)("read, $host", ({ child }) => {
     });
     setTimeout(() => controller.abort(reason), 200);
     await expect(pending).rejects.toBe(reason);
+  });
+
+  it("never starts a read aborted while its module loads", async () => {
+    host();
+    const controller = new AbortController();
+    const reason = new Error("stop");
+    const pending = sqlite.read(path, {
+      sql: "SELECT abs(-9223372036854775807 - 1)",
+      signal: controller.signal,
+    });
+    controller.abort(reason);
+    await expect(pending).rejects.toBe(reason);
+  });
+
+  it("lets a deadline that came due in the last step win, from an I/O callback", async () => {
+    host();
+    const outcome = await new Promise<unknown>((resolve) => {
+      readFile(path, () => {
+        const signal = AbortSignal.timeout(30);
+        sqlite
+          .read(path, {
+            sql: "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 3000000) SELECT n FROM c ORDER BY n DESC LIMIT 1",
+            signal,
+          })
+          .then(
+            () => resolve("resolved"),
+            (error: unknown) => resolve(error instanceof Error ? error.name : error),
+          );
+      });
+    });
+    expect(outcome).toBe("TimeoutError");
   });
 
   it("rejects an abort that lands while a short answer is still sorting", async () => {

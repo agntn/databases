@@ -224,14 +224,17 @@ function failure(error: unknown): ChildAnswer {
 }
 
 /**
- * Reads every value whole. The parent owns the deadline and kills this process at it.
+ * Reads every value whole and writes each row as its own line. The parent owns the deadline.
  *
  * @param job - The file, the statement and the limit.
- * @returns {Promise<ChildResult[]>} The rows, tagged for JSON.
+ * @returns {Promise<ChildResult[]>} The columns, with the rows already sent.
  */
 async function runRead(job: Extract<ChildJob, { kind: "read" }>): Promise<ChildResult[]> {
   const { columns, rows, more } = await readRaw(job, () => Promise.resolve());
-  return [{ wire: { columns, rows: rows.map((row) => row.map((value) => toWire(value))), more } }];
+  for (const row of rows) {
+    process.stdout.write(`${JSON.stringify(row.map((value) => toWire(value)))}\n`);
+  }
+  return [{ wire: { columns, rows: [], more } }];
 }
 
 /**

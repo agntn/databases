@@ -60,8 +60,8 @@ export async function read(database: string, options: Readonly<ReadOptions>): Pr
   }
   const { readRaw } = await import("./core/sqlite-raw.ts");
   const deadline = performance.now() + timeoutMs;
-  return readRaw(job, async () => {
-    await new Promise((resolve) => setImmediate(resolve));
+  /* Throws once the caller aborted or the deadline passed. */
+  const check = (): void => {
     signal?.throwIfAborted();
     if (performance.now() > deadline) {
       throw new DatabasesError(`The read ran past ${timeoutMs / 1000} s and was stopped`, {
@@ -69,7 +69,16 @@ export async function read(database: string, options: Readonly<ReadOptions>): Pr
         provider: "sqlite",
       });
     }
+  };
+  check();
+  const result = await readRaw(job, async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+    check();
   });
+  /* A timer turn, so an abort timer that came due during the last step fires first. */
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  check();
+  return result;
 }
 
 /**
