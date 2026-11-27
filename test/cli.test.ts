@@ -16,7 +16,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { afterAll, describe, expect, it } from "vite-plus/test";
 import pkg from "../package.json" with { type: "json" };
-import { sqliteFixture } from "./helpers.ts";
+import { readDirect, sqliteFixture } from "./helpers.ts";
 
 const switches = new Set([
   "CI",
@@ -262,10 +262,18 @@ function served(from: "bundle" | "source") {
   return { code: 0, from, name: "databases" };
 }
 
-const refused = {
+const restart = "src/ changed under this server, restart it to load the new code";
+
+const refused = { isError: true, content: [{ type: "text", text: restart }] };
+
+/** A write a pull lands under keeps the warning that it may have run. */
+const mayHaveRun = {
   isError: true,
   content: [
-    { type: "text", text: "src/ changed under this server, restart it to load the new code" },
+    {
+      type: "text",
+      text: `${restart}\nThe call's answer was dropped, and it may have run. Check before retrying.`,
+    },
   ],
 };
 
@@ -429,6 +437,57 @@ describe.skipIf(!existsSync(join(root, "dist/cli.mjs")))("databases mcp from the
       } finally {
         await fresh.client.close();
       }
+    } finally {
+      await client.close();
+      rmSync(checkout, { recursive: true, force: true });
+    }
+  });
+
+  it("drops a write a pull landed under, saying it may have run", async () => {
+    const { checkout, client } = await checkoutServer({
+      "tool-operations.ts": (operations) =>
+        `import { writeFileSync } from "node:fs";\n${operations.replace(
+          "  const { provider, value } = await withDatabase(input.database, (db) =>\n    db.execute(",
+          `  writeFileSync(new URL("./pulled.ts", import.meta.url), "export {};\\n");
+  const { provider, value } = await withDatabase(input.database, (db) =>
+    db.execute(`,
+        )}`,
+    });
+    const writable = sqliteFixture();
+    try {
+      expect(
+        await client.callTool({
+          name: "databases_execute",
+          arguments: { database: writable.path, sql: "DELETE FROM items" },
+        }),
+      ).toStrictEqual(mayHaveRun);
+      expect(readDirect(writable.path, "SELECT count(*) AS n FROM items")).toEqual([{ n: 0 }]);
+    } finally {
+      writable.dispose();
+      await client.close();
+      rmSync(checkout, { recursive: true, force: true });
+    }
+  });
+
+  it("lets progress through while it watches src/", async () => {
+    const { checkout, client } = await checkoutServer({
+      "tools.ts": (tools) =>
+        tools.replace(
+          "  execute: async (_, { signal }) => (await loadOperations(signal)).listProviders(),",
+          `  execute: async (_, { signal, progress }) => {
+    progress?.("listing engines");
+    return (await loadOperations(signal)).listProviders();
+  },`,
+        ),
+    });
+    const messages: unknown[] = [];
+    try {
+      const answer = await client.callTool(
+        { name: "databases_providers", arguments: {} },
+        { onprogress: ({ message }) => messages.push(message) },
+      );
+      expect(answer.isError).not.toBe(true);
+      expect(messages).toEqual(["listing engines"]);
     } finally {
       await client.close();
       rmSync(checkout, { recursive: true, force: true });
