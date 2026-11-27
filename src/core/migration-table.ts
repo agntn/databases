@@ -116,18 +116,18 @@ export function recordMigrationLiteral(script: Readonly<MigrationScript>): strin
  * Whether a script holds SQL past its comments, read the engine's way.
  *
  * @param sql - The script.
- * @param nested - Whether block comments nest, as in Postgres.
+ * @param postgres - Read comments as Postgres does, nested and ending at `\r`.
  * @returns {boolean} `true` when there is SQL to run.
  */
-export function hasStatements(sql: string, nested = false): boolean {
-  const filler = /(?:\s|;|--[^\n\r]*)*/uy;
+export function hasStatements(sql: string, postgres = false): boolean {
+  const filler = postgres ? /(?:\s|;|--[^\n\r]*)*/uy : /(?:\s|;|--[^\n]*)*/uy;
   let at = 0;
   for (;;) {
     filler.lastIndex = at;
     filler.exec(sql);
     at = filler.lastIndex;
     if (!sql.startsWith("/*", at)) return at < sql.length;
-    at = blockCommentEnd(sql, at, nested);
+    at = blockCommentEnd(sql, at, postgres);
   }
 }
 
@@ -154,7 +154,7 @@ function blockCommentEnd(sql: string, start: number, nested: boolean): number {
  * Checks a script before a provider sends it.
  *
  * @param script - What `migrate` got.
- * @param engine - Provider key; `postgres` nests block comments.
+ * @param engine - Provider key, for how its SQL reads comments.
  * @throws {DatabasesError} `query` for a bad name, checksum or time, or a script with no SQL.
  */
 export function checkMigration(script: Readonly<MigrationScript>, engine = ""): void {
@@ -183,14 +183,14 @@ function recordProblem(script: Readonly<MigrationScript>): string | undefined {
  * What is wrong with the SQL itself, if anything.
  *
  * @param script - The script, its record already checked.
- * @param nested - Whether block comments nest.
+ * @param postgres - Read comments as Postgres does.
  * @returns {string | undefined} The problem.
  */
-function sqlProblem(script: Readonly<MigrationScript>, nested: boolean): string | undefined {
+function sqlProblem(script: Readonly<MigrationScript>, postgres: boolean): string | undefined {
   if (typeof script.sql !== "string" || script.sql.length > MAX_MIGRATION_LENGTH) {
     return `A migration is text of at most ${MAX_MIGRATION_LENGTH} characters`;
   }
   if (script.sql.includes("\0")) return `${script.name} holds a NUL, where SQLite stops reading`;
-  if (!hasStatements(script.sql, nested)) return `${script.name} has no SQL yet, only comments`;
+  if (!hasStatements(script.sql, postgres)) return `${script.name} has no SQL yet, only comments`;
   return undefined;
 }

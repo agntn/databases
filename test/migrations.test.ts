@@ -374,8 +374,14 @@ describe("checkMigration", () => {
   it("takes a well formed script", () => {
     expect(() => checkMigration(good)).not.toThrow();
     expect(() =>
-      checkMigration({ ...good, sql: "-- users\rCREATE TABLE users (id int);" }),
+      checkMigration({ ...good, sql: "-- users\rCREATE TABLE users (id int);" }, "postgres"),
     ).not.toThrow();
+  });
+
+  it("refuses SQL after a bare CR in a line comment, which SQLite never ends", () => {
+    expect(() =>
+      checkMigration({ ...good, sql: "-- users\rCREATE TABLE users (id int);" }),
+    ).toThrow("0001_a.sql has no SQL yet, only comments");
   });
 
   it("takes a script behind a block comment with dashes in it", () => {
