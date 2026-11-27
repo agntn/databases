@@ -466,7 +466,7 @@ export class Postgres extends Provider {
     script: MigrationScript,
     options: MigrateOptions = {},
   ): Promise<{ applied: boolean }> {
-    checkMigration(script);
+    checkMigration(script, Postgres.key);
     return this.#transaction(
       false,
       async (tx) => {

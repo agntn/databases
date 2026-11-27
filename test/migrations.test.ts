@@ -389,6 +389,19 @@ describe("checkMigration", () => {
       checkMigration({ ...good, sql: "-- todo\n/* CREATE TABLE tags (a); -- later */" }),
     ).toThrow("0001_a.sql has no SQL yet, only comments");
   });
+
+  it.each([
+    ["one nested in another", "/* a /* b */ c */"],
+    ["one wrapped around a dashed one", "/*\nCREATE TABLE tags (a); /* -- later */\n*/"],
+  ])("refuses a Postgres script of nested comments, %s", (_label, sql) => {
+    expect(() => checkMigration({ ...good, sql }, "postgres")).toThrow(DatabasesError);
+  });
+
+  it("reads past the first */ where comments don't nest", () => {
+    expect(() =>
+      checkMigration({ ...good, sql: "/* see /* old */ CREATE TABLE tags (a);" }),
+    ).not.toThrow();
+  });
 });
 
 describe("the migration tools", () => {
@@ -641,6 +654,17 @@ describe.skipIf(!postgresUrl)("migrations on Postgres", () => {
 
     expect((await applyMigrations(provider, { directory: dir })).applied).toHaveLength(1);
     expect(await tables()).toEqual(["databases_migrations", "users"]);
+  });
+
+  it("refuses a file of nested comments without recording it", async () => {
+    const { dir } = project();
+    file(dir, "0001_later.sql", "/*\nCREATE TABLE tags (id int); /* -- later */\n*/\n");
+    const provider = await open(target());
+
+    expect((await failure(applyMigrations(provider, { directory: dir }))).message).toBe(
+      "0001_later.sql has no SQL yet, only comments",
+    );
+    expect(await tables()).toEqual([]);
   });
 
   it("records into the table it created when a file moves search_path", async () => {

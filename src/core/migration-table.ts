@@ -113,23 +113,52 @@ export function recordMigrationLiteral(script: Readonly<MigrationScript>): strin
 }
 
 /**
- * Whether a script holds anything but comments, whichever comment opens first winning.
+ * Whether a script holds SQL past its comments, read the engine's way.
  *
  * @param sql - The script.
+ * @param nested - Whether block comments nest, as in Postgres.
  * @returns {boolean} `true` when there is SQL to run.
  */
-export function hasStatements(sql: string): boolean {
-  return sql.replaceAll(/--[^\n\r]*|\/\*[\s\S]*?(?:\*\/|$)|;/gu, "").trim() !== "";
+export function hasStatements(sql: string, nested = false): boolean {
+  const filler = /(?:\s|;|--[^\n\r]*)*/uy;
+  let at = 0;
+  for (;;) {
+    filler.lastIndex = at;
+    filler.exec(sql);
+    at = filler.lastIndex;
+    if (!sql.startsWith("/*", at)) return at < sql.length;
+    at = blockCommentEnd(sql, at, nested);
+  }
+}
+
+/**
+ * Where the block comment opening at `start` closes, or the end of the text.
+ *
+ * @param sql - The script.
+ * @param start - Index of its `/*`.
+ * @param nested - Whether an inner `/*` needs its own `*\/`.
+ * @returns {number} The index just past the closing `*\/`.
+ */
+function blockCommentEnd(sql: string, start: number, nested: boolean): number {
+  const marks = nested ? /\/\*|\*\//gu : /\*\//gu;
+  marks.lastIndex = start + 2;
+  let depth = 1;
+  for (let mark = marks.exec(sql); mark !== null; mark = marks.exec(sql)) {
+    depth += mark[0] === "/*" ? 1 : -1;
+    if (depth === 0) return marks.lastIndex;
+  }
+  return sql.length;
 }
 
 /**
  * Checks a script before a provider sends it.
  *
  * @param script - What `migrate` got.
+ * @param engine - Provider key; `postgres` nests block comments.
  * @throws {DatabasesError} `query` for a bad name, checksum or time, or a script with no SQL.
  */
-export function checkMigration(script: Readonly<MigrationScript>): void {
-  const problem = recordProblem(script) ?? sqlProblem(script);
+export function checkMigration(script: Readonly<MigrationScript>, engine = ""): void {
+  const problem = recordProblem(script) ?? sqlProblem(script, engine === "postgres");
   if (problem !== undefined) throw new DatabasesError(problem, { code: "query" });
 }
 
@@ -154,13 +183,14 @@ function recordProblem(script: Readonly<MigrationScript>): string | undefined {
  * What is wrong with the SQL itself, if anything.
  *
  * @param script - The script, its record already checked.
+ * @param nested - Whether block comments nest.
  * @returns {string | undefined} The problem.
  */
-function sqlProblem(script: Readonly<MigrationScript>): string | undefined {
+function sqlProblem(script: Readonly<MigrationScript>, nested: boolean): string | undefined {
   if (typeof script.sql !== "string" || script.sql.length > MAX_MIGRATION_LENGTH) {
     return `A migration is text of at most ${MAX_MIGRATION_LENGTH} characters`;
   }
   if (script.sql.includes("\0")) return `${script.name} holds a NUL, where SQLite stops reading`;
-  if (!hasStatements(script.sql)) return `${script.name} has no SQL yet, only comments`;
+  if (!hasStatements(script.sql, nested)) return `${script.name} has no SQL yet, only comments`;
   return undefined;
 }
