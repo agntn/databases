@@ -3,7 +3,7 @@
  * infinity and no negative zero. Imports no `node:sqlite`, so the parent side loads anywhere.
  */
 
-import type { SqliteValue } from "./types.ts";
+import type { Param, SqliteValue } from "./types.ts";
 
 /** A value JSON can't hold as itself. */
 export type WireTag =
@@ -24,6 +24,26 @@ export function toWire(value: SqliteValue): WireValue {
   if (value instanceof Uint8Array) return { $bytes: value.toBase64() };
   if (typeof value !== "number" || (Number.isFinite(value) && !Object.is(value, -0))) return value;
   return { $real: Object.is(value, -0) ? "-0" : value > 0 ? "Infinity" : "-Infinity" };
+}
+
+/**
+ * A bind parameter for the wire, `-0` tagged so JSON keeps its sign.
+ *
+ * @param value - The parameter.
+ * @returns {WireValue | boolean} The parameter.
+ */
+export function paramToWire(value: Param): WireValue | boolean {
+  return Object.is(value, -0) ? { $real: "-0" } : value;
+}
+
+/**
+ * A bind parameter back from the wire.
+ *
+ * @param value - What the parent wrote.
+ * @returns {Param} The parameter.
+ */
+export function paramFromWire(value: WireValue | boolean): Param {
+  return typeof value === "object" && value !== null && "$real" in value ? -0 : (value as Param);
 }
 
 /**

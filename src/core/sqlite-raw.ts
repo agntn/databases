@@ -60,18 +60,26 @@ function exact(value: unknown): SqliteValue {
   return safe ? Number(value) : value;
 }
 
+export interface RawReadHooks {
+  /** Awaited every few hundred rows, so the caller can yield, cancel or stop. */
+  readonly checkpoint: () => Promise<void>;
+  /** Takes each row instead of the result, which then has none. Awaited, for backpressure. */
+  readonly onRow?: (row: readonly SqliteValue[]) => Promise<void>;
+}
+
 /**
  * Runs one read and keeps every value whole.
  *
  * @param job - File, statement, parameters and limit.
- * @param checkpoint - Awaited every few hundred rows, so the caller can yield, cancel or stop.
+ * @param hooks - The checkpoint, and where rows go when not into the result.
  * @returns {Promise<ReadResult>} The rows.
  * @throws {DatabasesError} `refused` for a write, `query` for what the engine rejects.
  */
 export async function readRaw(
   job: Readonly<RawRead>,
-  checkpoint: () => Promise<void>,
+  hooks: Readonly<RawReadHooks>,
 ): Promise<ReadResult> {
+  const { checkpoint, onRow } = hooks;
   let db: DatabaseSync | undefined;
   try {
     db = openRead(job.path);
@@ -81,14 +89,18 @@ export async function readRaw(
     /* SQLite has no boolean type; it stores true and false as 1 and 0. */
     const params = job.params.map((value) => (typeof value === "boolean" ? Number(value) : value));
     const rows: SqliteValue[][] = [];
+    let count = 0;
     let more = false;
     for (const row of statement.iterate(...params) as Iterable<unknown[]>) {
-      if (rows.length === job.limit) {
+      if (count === job.limit) {
         more = true;
         break;
       }
-      rows.push(row.map((value) => exact(value)));
-      if (rows.length % CHECK_EVERY === 0) await checkpoint();
+      const values = row.map((value) => exact(value));
+      if (onRow) await onRow(values);
+      else rows.push(values);
+      count += 1;
+      if (count % CHECK_EVERY === 0) await checkpoint();
     }
     return { columns: columnsOf(statement), rows, more };
   } catch (error) {

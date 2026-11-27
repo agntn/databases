@@ -81,6 +81,12 @@ describe.each(hosts)("read, $host", ({ child }) => {
     expect(rows[3]?.[3]).toBe(Number.NEGATIVE_INFINITY);
   });
 
+  it("binds -0 as -0", async () => {
+    host();
+    const { rows } = await sqlite.read(path, { sql: "SELECT ?", params: [-0] });
+    expect(Object.is(rows[0]?.[0], -0)).toBe(true);
+  });
+
   it("reads every row without a limit, and stops at one", async () => {
     host();
     const all = await sqlite.read(path, { sql: "SELECT id FROM part" });

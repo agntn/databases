@@ -8,6 +8,7 @@
  * Reads one JSON job from stdin and writes one JSON answer to stdout.
  */
 
+import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { constants, DatabaseSync } from "node:sqlite";
 import { DatabasesError } from "./core/errors.ts";
@@ -20,7 +21,7 @@ import {
 import { guardReads, prepareOne } from "./core/policy.ts";
 import type { ChildAnswer, ChildJob, ChildResult, ChildStep } from "./core/sqlite-protocol.ts";
 import { columnsOf, readRaw } from "./core/sqlite-raw.ts";
-import { toWire } from "./core/sqlite-wire.ts";
+import { paramFromWire, toWire } from "./core/sqlite-wire.ts";
 import type { Cell } from "./core/types.ts";
 import { fitRows, toCell, type CellBudget } from "./core/values.ts";
 
@@ -230,10 +231,17 @@ function failure(error: unknown): ChildAnswer {
  * @returns {Promise<ChildResult[]>} The columns, with the rows already sent.
  */
 async function runRead(job: Extract<ChildJob, { kind: "read" }>): Promise<ChildResult[]> {
-  const { columns, rows, more } = await readRaw(job, () => Promise.resolve());
-  for (const row of rows) {
-    process.stdout.write(`${JSON.stringify(row.map((value) => toWire(value)))}\n`);
-  }
+  const params = job.params.map((value) => paramFromWire(value));
+  const { columns, more } = await readRaw(
+    { ...job, params },
+    {
+      checkpoint: () => Promise.resolve(),
+      onRow: async (row) => {
+        const line = `${JSON.stringify(row.map((value) => toWire(value)))}\n`;
+        if (!process.stdout.write(line)) await once(process.stdout, "drain");
+      },
+    },
+  );
   return [{ wire: { columns, rows: [], more } }];
 }
 

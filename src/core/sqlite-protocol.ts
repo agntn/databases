@@ -46,7 +46,8 @@ export type ChildJob =
       readonly kind: "read";
       readonly path: string;
       readonly sql: string;
-      readonly params: readonly Param[];
+      /** Tagged by `paramToWire`, since JSON drops the sign of `-0`. */
+      readonly params: readonly (WireValue | boolean)[];
       readonly limit?: number | undefined;
     };
 

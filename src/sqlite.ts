@@ -8,7 +8,7 @@ import { DatabasesError } from "./core/errors.ts";
 import { checkStatement } from "./core/provider.ts";
 import { parseReference } from "./core/reference.ts";
 import { runChild } from "./core/sqlite-protocol.ts";
-import { fromWire } from "./core/sqlite-wire.ts";
+import { fromWire, paramToWire } from "./core/sqlite-wire.ts";
 import type { ReadOptions, ReadResult } from "./core/types.ts";
 
 export type { ReadOptions, ReadResult, SqliteValue } from "./core/types.ts";
@@ -53,7 +53,8 @@ export async function read(database: string, options: Readonly<ReadOptions>): Pr
   const { signal } = options;
   signal?.throwIfAborted();
   if (!process.getBuiltinModule("node:sqlite")) {
-    const [answer] = await runChild({ kind: "read", ...job }, { signal, timeoutMs });
+    const params = job.params.map((value) => paramToWire(value));
+    const [answer] = await runChild({ kind: "read", ...job, params }, { signal, timeoutMs });
     if (!answer || !("wire" in answer)) return { columns: [], rows: [], more: false };
     const { columns, rows, more } = answer.wire;
     return { columns, rows: rows.map((row) => row.map((value) => fromWire(value))), more };
@@ -71,10 +72,13 @@ export async function read(database: string, options: Readonly<ReadOptions>): Pr
     }
   };
   check();
-  const result = await readRaw(job, async () => {
-    await new Promise((resolve) => setImmediate(resolve));
-    check();
+  const result = await readRaw(job, {
+    checkpoint: async () => {
+      await new Promise((resolve) => setImmediate(resolve));
+      check();
+    },
   });
+  if (!signal && !Number.isFinite(timeoutMs)) return result;
   /* A timer turn, so an abort timer that came due during the last step fires first. */
   await new Promise((resolve) => setTimeout(resolve, 0));
   check();
