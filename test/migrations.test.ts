@@ -374,7 +374,38 @@ describe("checkMigration", () => {
   it("takes a well formed script", () => {
     expect(() => checkMigration(good)).not.toThrow();
     expect(() =>
+      checkMigration({ ...good, sql: "-- users\rCREATE TABLE users (id int);" }, "postgres"),
+    ).not.toThrow();
+  });
+
+  it("refuses SQL after a bare CR in a line comment, which SQLite never ends", () => {
+    expect(() =>
       checkMigration({ ...good, sql: "-- users\rCREATE TABLE users (id int);" }),
+    ).toThrow("0001_a.sql has no SQL yet, only comments");
+  });
+
+  it("takes a script behind a block comment with dashes in it", () => {
+    expect(() =>
+      checkMigration({ ...good, sql: "/* -- add tags */ CREATE TABLE tags (a);" }),
+    ).not.toThrow();
+  });
+
+  it("refuses a script whose only statement sits inside a block comment", () => {
+    expect(() =>
+      checkMigration({ ...good, sql: "-- todo\n/* CREATE TABLE tags (a); -- later */" }),
+    ).toThrow("0001_a.sql has no SQL yet, only comments");
+  });
+
+  it.each([
+    ["one nested in another", "/* a /* b */ c */"],
+    ["one wrapped around a dashed one", "/*\nCREATE TABLE tags (a); /* -- later */\n*/"],
+  ])("refuses a Postgres script of nested comments, %s", (_label, sql) => {
+    expect(() => checkMigration({ ...good, sql }, "postgres")).toThrow(DatabasesError);
+  });
+
+  it("reads past the first */ where comments don't nest", () => {
+    expect(() =>
+      checkMigration({ ...good, sql: "/* see /* old */ CREATE TABLE tags (a);" }),
     ).not.toThrow();
   });
 });
@@ -629,6 +660,17 @@ describe.skipIf(!postgresUrl)("migrations on Postgres", () => {
 
     expect((await applyMigrations(provider, { directory: dir })).applied).toHaveLength(1);
     expect(await tables()).toEqual(["databases_migrations", "users"]);
+  });
+
+  it("refuses a file of nested comments without recording it", async () => {
+    const { dir } = project();
+    file(dir, "0001_later.sql", "/*\nCREATE TABLE tags (id int); /* -- later */\n*/\n");
+    const provider = await open(target());
+
+    expect((await failure(applyMigrations(provider, { directory: dir }))).message).toBe(
+      "0001_later.sql has no SQL yet, only comments",
+    );
+    expect(await tables()).toEqual([]);
   });
 
   it("records into the table it created when a file moves search_path", async () => {

@@ -279,7 +279,7 @@ export async function applyMigrations(
   }
   const queue = upTo(status, options.to);
   const unrun = new Date(0).toISOString();
-  for (const file of queue) checkMigration({ ...file, appliedAt: unrun });
+  for (const file of queue) checkMigration({ ...file, appliedAt: unrun }, db.key);
   const applied: AppliedMigration[] = [];
   for (const { name, checksum, sql } of queue) {
     options.signal?.throwIfAborted();
