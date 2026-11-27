@@ -44,6 +44,10 @@
     "./mcp": {
       "types": "./dist/mcp.d.mts",
       "import": "./dist/mcp.mjs"
+    },
+    "./sqlite": {
+      "types": "./dist/sqlite.d.mts",
+      "import": "./dist/sqlite.mjs"
     }
   },
   "publishConfig": {

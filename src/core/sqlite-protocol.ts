@@ -10,6 +10,7 @@ import { DatabasesError, type DatabasesErrorCode } from "./errors.ts";
 import { STATEMENT_TIMEOUT_MS } from "./limits.ts";
 import type { MigrationScript } from "./migration-table.ts";
 import type { Cell, Column, Param } from "./types.ts";
+import type { WireValue } from "./sqlite-wire.ts";
 
 export interface ChildStep {
   readonly sql: string;
@@ -39,6 +40,15 @@ export type ChildJob =
       readonly kind: "migrate";
       readonly path: string;
       readonly script: MigrationScript;
+    }
+  | {
+      /** One read with every value whole, for `read` on a host without `node:sqlite`. */
+      readonly kind: "read";
+      readonly path: string;
+      readonly sql: string;
+      /** Tagged by `paramToWire`, since JSON drops the sign of `-0`. */
+      readonly params: readonly (WireValue | boolean)[];
+      readonly limit?: number | undefined;
     };
 
 export type ChildResult =
@@ -52,6 +62,14 @@ export type ChildResult =
   | {
       /** `false` when the table already had it, so nothing ran. */
       readonly applied: boolean;
+    }
+  | {
+      /** A whole read; its rows arrive as lines before it. */
+      readonly wire: {
+        readonly columns: readonly Column[];
+        readonly rows: readonly (readonly WireValue[])[];
+        readonly more: boolean;
+      };
     };
 
 export type ChildAnswer =
@@ -66,12 +84,54 @@ export type ChildAnswer =
 
 export interface RunOptions {
   readonly signal?: AbortSignal | undefined;
-  /** Kill the child after this long. Default `STATEMENT_TIMEOUT_MS`. */
+  /** Kill the child after this long, `Infinity` for never. Default `STATEMENT_TIMEOUT_MS`. */
   readonly timeoutMs?: number;
 }
 
-/** Bytes of answer the parent reads before it gives up on a child. */
+/** Bytes of answer the parent reads before it gives up on a child. A whole read has no cap. */
 const MAX_ANSWER_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Node flags for a job. A whole read gets the default heap, since its size is the caller's call.
+ *
+ * @param job - The work.
+ * @returns {string[]} Flags before the script.
+ */
+function nodeFlags(job: ChildJob): string[] {
+  return job.kind === "read" ? ["--no-warnings"] : ["--no-warnings", "--max-old-space-size=512"];
+}
+
+/** Reads the child's answer line by line, so a whole read never needs one string for all rows. */
+class AnswerReader {
+  /** Every full line so far: the rows of a whole read, none for other jobs. */
+  readonly rows: WireValue[][] = [];
+  #pending: Uint8Array[] = [];
+
+  /**
+   * Takes one chunk of stdout.
+   *
+   * @param chunk - The bytes.
+   */
+  push(chunk: Uint8Array): void {
+    let start = 0;
+    for (let end = chunk.indexOf(10); end !== -1; end = chunk.indexOf(10, start)) {
+      this.#pending.push(chunk.subarray(start, end));
+      this.rows.push(JSON.parse(Buffer.concat(this.#pending).toString("utf8")) as WireValue[]);
+      this.#pending = [];
+      start = end + 1;
+    }
+    if (start < chunk.length) this.#pending.push(chunk.subarray(start));
+  }
+
+  /**
+   * The last line, which is the answer itself.
+   *
+   * @returns {string} Its text.
+   */
+  rest(): string {
+    return Buffer.concat(this.#pending).toString("utf8");
+  }
+}
 
 /**
  * The child script: `dist/sqlite-child.mjs` beside the chunks of a build, `src/sqlite-child.ts`
@@ -103,6 +163,20 @@ function nodeBinary(): string {
 }
 
 /**
+ * Puts the rows that came as lines into the whole read they belong to.
+ *
+ * @param results - What the last line said.
+ * @param rows - The lines before it.
+ * @returns {ChildResult[]} The results, rows in place.
+ */
+function withRows(
+  results: readonly ChildResult[],
+  rows: readonly (readonly WireValue[])[],
+): ChildResult[] {
+  return results.map((result) => ("wire" in result ? { wire: { ...result.wire, rows } } : result));
+}
+
+/**
  * Runs a job in a fresh Node process and kills it at the deadline or on abort.
  *
  * @param job - The work.
@@ -118,18 +192,19 @@ export function runChild(
   signal?.throwIfAborted();
   const script = childScript();
   return new Promise((resolve, reject) => {
-    const child = spawn(nodeBinary(), ["--no-warnings", "--max-old-space-size=512", script], {
+    const cap = job.kind === "read" ? Number.POSITIVE_INFINITY : MAX_ANSWER_BYTES;
+    const child = spawn(nodeBinary(), [...nodeFlags(job), script], {
       stdio: ["pipe", "pipe", "pipe"],
       env: { PATH: process.env["PATH"] ?? "", NODE_OPTIONS: "" },
     });
-    const chunks: Uint8Array[] = [];
+    const reader = new AnswerReader();
     const errors: Uint8Array[] = [];
     let size = 0;
     let settled = false;
     const finish = (error: Error | undefined, results?: readonly ChildResult[]): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       if (child.exitCode === null) child.kill("SIGKILL");
       if (error) reject(error);
@@ -138,14 +213,16 @@ export function runChild(
     const onAbort = (): void => {
       finish(signal?.reason instanceof Error ? signal.reason : new Error("Aborted"));
     };
-    const timer = setTimeout(() => {
-      finish(
-        new DatabasesError(`The statement ran past ${timeoutMs / 1000} s and was stopped`, {
-          code: "timeout",
-          provider: "sqlite",
-        }),
-      );
-    }, timeoutMs);
+    const timer = Number.isFinite(timeoutMs)
+      ? setTimeout(() => {
+          finish(
+            new DatabasesError(`The statement ran past ${timeoutMs / 1000} s and was stopped`, {
+              code: "timeout",
+              provider: "sqlite",
+            }),
+          );
+        }, timeoutMs)
+      : undefined;
     signal?.addEventListener("abort", onAbort, { once: true });
     child.on("error", (error) => {
       finish(
@@ -158,20 +235,23 @@ export function runChild(
     });
     child.stdout.on("data", (chunk: Uint8Array) => {
       size += chunk.length;
-      if (size > MAX_ANSWER_BYTES) {
+      if (size > cap) {
         finish(new DatabasesError("The SQLite answer was too large", { code: "query" }));
         return;
       }
-      chunks.push(chunk);
+      try {
+        reader.push(chunk);
+      } catch {
+        finish(new DatabasesError("The SQLite runner sent a broken row", { code: "query" }));
+      }
     });
     child.stderr.on("data", (chunk: Uint8Array) => {
       if (errors.length < 16) errors.push(chunk);
     });
     child.on("close", (code) => {
-      const text = Buffer.concat(chunks).toString("utf8");
       let answer: ChildAnswer;
       try {
-        answer = JSON.parse(text) as ChildAnswer;
+        answer = JSON.parse(reader.rest()) as ChildAnswer;
       } catch {
         const detail = Buffer.concat(errors).toString("utf8").trim().split("\n").at(-1) ?? "";
         finish(
@@ -190,7 +270,7 @@ export function runChild(
             ...(answer.error.engineCode ? { engineCode: answer.error.engineCode } : {}),
           }),
         );
-      } else finish(undefined, answer.results);
+      } else finish(undefined, withRows(answer.results, reader.rows));
     });
     child.stdin.on("error", () => {
       /* A child that exits before reading its job reports through `close`. */

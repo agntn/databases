@@ -11,6 +11,7 @@ export default defineBuildConfig({
         "./src/ai.ts",
         "./src/mcp.ts",
         "./src/tools.ts",
+        "./src/sqlite.ts",
         /** Started as its own process by the SQLite provider; it finds it beside the chunks. */
         "./src/sqlite-child.ts",
       ],
