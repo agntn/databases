@@ -14,7 +14,7 @@ const sourceModulePath = fileURLToPath(new URL("../../src/tools.ts", import.meta
 /**
  * Both specifiers stay literal: compiled OMP resolves bare imports only where it sees them.
  *
- * @returns {Promise<typeof DatabasesTools>} The definitions and the executor loader.
+ * @returns {Promise<typeof DatabasesTools>} The tool definitions.
  */
 function loadTools(): Promise<typeof DatabasesTools> {
   return (

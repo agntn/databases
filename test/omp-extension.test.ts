@@ -95,6 +95,8 @@ describe("omp databases extension", () => {
 
     expect(
       renderedText(query.renderResult?.(result, { expanded: false, isPartial: false }, theme)),
-    ).toBe("success:status.done accent(Query Database) accent([read]) dim(2 rows | more)");
+    ).toBe(
+      "success:status.done accent(Query Database) accent([read]) dim(2 rows | more)\ntoolOutput(ok)",
+    );
   });
 });

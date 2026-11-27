@@ -26,7 +26,7 @@ catalog:
 catalogs:
   deps:
     "@agntn/credentials": 0.1.1
-    "@agntn/tools": 0.3.1
+    "@agntn/tools": 0.4.1
     "@modelcontextprotocol/sdk": 1.32.1
     "@modelcontextprotocol/server": 2.4.0
     "@vueuse/core": 14.4.0
