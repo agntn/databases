@@ -3,6 +3,7 @@
  * tables; CI starts one as a service. Without it the suite is skipped.
  */
 
+import { spawnSync } from "node:child_process";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { DatabasesError } from "../src/core/errors.ts";
@@ -177,5 +178,20 @@ describe.skipIf(!postgresUrl)("the postgres provider", () => {
     }
     expect(message).toContain("***");
     expect(message).not.toContain("do-not-show-me");
+  });
+});
+
+describe.skipIf(!postgresUrl)("the CLI against postgres", () => {
+  it("refuses two statements in one line on stderr", () => {
+    const { status, stderr } = spawnSync(
+      process.execPath,
+      ["src/cli.ts", "query", postgresUrl ?? "", "SELECT 1; SELECT 2"],
+      { encoding: "utf8" },
+    );
+    expect({ status, stderr }).toEqual({
+      status: 1,
+      stderr:
+        "Refused: send one statement per call. Everything after the first `;` would have run too [refused]\n",
+    });
   });
 });

@@ -1,6 +1,6 @@
 /** The databases tools, declared once for every surface. Executors load on the first call. */
 
-import { defineTool, Type, type ToolDefinition } from "@agntn/tools";
+import { defineTool, lazy, Type, type ToolDefinition } from "@agntn/tools";
 import {
   DEFAULT_ROWS,
   DEFAULT_SAMPLE_ROWS,
@@ -10,22 +10,8 @@ import {
   MAX_SQL_LENGTH,
 } from "./core/limits.ts";
 
-type ToolOperations = typeof import("./tool-operations.ts");
-
-let operations: Promise<ToolOperations> | undefined;
-
-/**
- * Loads the executors once. A failed load isn't cached, so a broken `dist` doesn't stick.
- *
- * @returns {Promise<ToolOperations>} The executors.
- */
-export function loadOperations(): Promise<ToolOperations> {
-  operations ??= import("./tool-operations.ts").catch((error: unknown) => {
-    operations = undefined;
-    throw error;
-  });
-  return operations;
-}
+/** The executors, never handed to a call cancelled while they load. */
+const loadOperations = /* @__PURE__ */ lazy(() => import("./tool-operations.ts"));
 
 const database = Type.String({
   description:
@@ -69,7 +55,7 @@ export const providersTool = defineTool({
   effect: "read",
   cli: { command: "providers", description: "Engines and configured connections" },
   input: Type.Object({}),
-  execute: async () => (await loadOperations()).listProviders(),
+  execute: async (_, { signal }) => (await loadOperations(signal)).listProviders(),
 });
 
 export const schemaGetTool = defineTool({
@@ -97,7 +83,7 @@ export const schemaGetTool = defineTool({
     },
     { additionalProperties: false },
   ),
-  execute: async (input, context) => (await loadOperations()).getSchema(input, context.signal),
+  execute: async (input, { signal }) => (await loadOperations(signal)).getSchema(input, signal),
 });
 
 export const tableSampleTool = defineTool({
@@ -129,7 +115,7 @@ export const tableSampleTool = defineTool({
     },
     { additionalProperties: false },
   ),
-  execute: async (input, context) => (await loadOperations()).sampleTable(input, context.signal),
+  execute: async (input, { signal }) => (await loadOperations(signal)).sampleTable(input, signal),
 });
 
 export const queryTool = defineTool({
@@ -167,7 +153,7 @@ export const queryTool = defineTool({
     },
     { additionalProperties: false },
   ),
-  execute: async (input, context) => (await loadOperations()).runQuery(input, context.signal),
+  execute: async (input, { signal }) => (await loadOperations(signal)).runQuery(input, signal),
 });
 
 export const explainTool = defineTool({
@@ -186,7 +172,7 @@ export const explainTool = defineTool({
     stdin: ["sql"],
   },
   input: Type.Object({ database, sql, params }, { additionalProperties: false }),
-  execute: async (input, context) => (await loadOperations()).explainQuery(input, context.signal),
+  execute: async (input, { signal }) => (await loadOperations(signal)).explainQuery(input, signal),
 });
 
 export const executeTool = defineTool({
@@ -210,8 +196,8 @@ export const executeTool = defineTool({
     stdin: ["sql"],
   },
   input: Type.Object({ database, sql, params }, { additionalProperties: false }),
-  execute: async (input, context) =>
-    (await loadOperations()).executeStatement(input, context.signal),
+  execute: async (input, { signal }) =>
+    (await loadOperations(signal)).executeStatement(input, signal),
 });
 
 const directory = Type.Optional(
@@ -239,8 +225,8 @@ export const migrationsStatusTool = defineTool({
     short: { directory: "d" },
   },
   input: Type.Object({ database, directory }, { additionalProperties: false }),
-  execute: async (input, context) =>
-    (await loadOperations()).migrationsStatus(input, context.signal),
+  execute: async (input, { signal }) =>
+    (await loadOperations(signal)).migrationsStatus(input, signal),
 });
 
 export const migrationsCreateTool = defineTool({
@@ -279,7 +265,7 @@ export const migrationsCreateTool = defineTool({
     },
     { additionalProperties: false },
   ),
-  execute: async (input) => (await loadOperations()).migrationsCreate(input),
+  execute: async (input, { signal }) => (await loadOperations(signal)).migrationsCreate(input),
 });
 
 export const migrationsApplyTool = defineTool({
@@ -315,8 +301,8 @@ export const migrationsApplyTool = defineTool({
     },
     { additionalProperties: false },
   ),
-  execute: async (input, context) =>
-    (await loadOperations()).migrationsApply(input, context.signal),
+  execute: async (input, { signal }) =>
+    (await loadOperations(signal)).migrationsApply(input, signal),
 });
 
 export const databasesTools = [

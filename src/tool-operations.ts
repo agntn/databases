@@ -110,7 +110,7 @@ function limitOf(limit: number | undefined): number | undefined {
 }
 
 /**
- * Opens the database, runs the work and turns a failure into one clean line for the model.
+ * Opens the database, runs the work and fails in one line, no cause for hosts to print.
  *
  * @param reference - The `database` argument.
  * @param work - What to do with the provider.
@@ -129,7 +129,6 @@ async function withDatabase<T>(
         code: error.code,
         ...(error.provider ? { provider: error.provider } : {}),
         ...(error.engineCode ? { engineCode: error.engineCode } : {}),
-        cause: error,
       });
     }
     throw error;
@@ -147,10 +146,7 @@ async function withMessage<T>(work: () => Promise<T>): Promise<T> {
     return await work();
   } catch (error) {
     if (error instanceof DatabasesError) {
-      throw new DatabasesError(`${shown(error.message)} [${error.code}]`, {
-        code: error.code,
-        cause: error,
-      });
+      throw new DatabasesError(`${shown(error.message)} [${error.code}]`, { code: error.code });
     }
     throw error;
   }
